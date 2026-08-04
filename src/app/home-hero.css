@@ -1,0 +1,41 @@
+/* The source illustration has deliberate negative space on its left half.
+   Size by height and crop that empty canvas so the meerkat remains the hero. */
+.hero-art {
+  height: 630px;
+  overflow: visible;
+  isolation: isolate;
+}
+
+.hero-art .meerkat {
+  position: absolute;
+  z-index: 0;
+  left: 50%;
+  width: auto;
+  height: 112%;
+  max-width: none;
+  transform: translate(-54%, 0);
+  clip-path: inset(0 0 0 28%);
+  mix-blend-mode: multiply;
+}
+
+.hero-art aside { z-index: 1; }
+
+@media (max-width: 900px) {
+  .hero-art { height: 470px; overflow: hidden; }
+  .hero-art .meerkat {
+    left: 50%;
+    width: auto;
+    height: 124%;
+    transform: translate(-52%, -3%);
+    clip-path: inset(0 0 0 24%);
+  }
+}
+
+@media (max-width: 620px) {
+  .hero-art { height: 390px; }
+  .hero-art .meerkat {
+    height: 132%;
+    transform: translate(-51%, -2%);
+    clip-path: inset(0 0 0 22%);
+  }
+}
