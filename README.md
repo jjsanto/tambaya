@@ -45,9 +45,11 @@ npm run preview
 
 The configuration follows Cloudflare’s current Workers + OpenNext convention: `.open-next/worker.js`, `.open-next/assets`, `nodejs_compat`, and an explicit compatibility date. Connect `jjsanto/tambaya` under Workers & Pages → Create application → Import a repository if you prefer Git-based builds; use `npm run cf:build` as the build command and `.open-next/assets` as the assets produced by OpenNext.
 
-## Editorial API
+## Editorial workspace
 
-`POST /api/editorial/questions` creates a D1 draft after question, status, and basic answer-leak validation. Send JSON and, when configured, `Authorization: Bearer <EDITORIAL_TOKEN>`. Phase 1 intentionally stops at minimal editorial entry; enrichment and review orchestration belong to Phase 2.
+`/editorial` is a token-protected D1 workspace. An editor can create private drafts, load the review queue, choose verified status metadata, and publish a reviewed question. Publishing requires an answer-free context summary of at least 150 characters. The browser keeps the supplied token in session storage only.
+
+The underlying API accepts `Authorization: Bearer <EDITORIAL_TOKEN>`: `GET` and `POST` on `/api/editorial/questions` list records and create drafts, while `PATCH /api/editorial/questions/:id` performs controlled publication. Rich section editing and revision history remain Phase 2 work.
 
 ## Repository map
 
