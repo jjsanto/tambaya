@@ -1,6 +1,6 @@
 import { getCloudflareContext } from "@opennextjs/cloudflare";
 import { hasLikelyAnswerLeak, isAnswerStatus, type StoryBlock } from "@/domain/question";
-import { hasEditorialAccess, unauthorized } from "@/lib/editorial-auth";
+import { editorialHeaders, hasEditorialAccess, unauthorized } from "@/lib/editorial-auth";
 import type { CloudflareBindings } from "@/types/cloudflare";
 
 type DraftRow = { id: string; question_text: string; context_summary: string; publication_state: string };
@@ -59,7 +59,7 @@ export async function GET(request: Request, { params }: { params: Promise<{ id: 
   const liveSections = (sectionsResult.results ?? []).map(section => ({ key: section.section_key, kicker: section.kicker, title: section.title, paragraphs: paragraphs.filter(item => item.section_id === section.id).map(item => item.body), blocks: blocks.filter(item => item.section_id === section.id).map(item => ({ type: item.block_type, ...JSON.parse(item.data_json) }) as StoryBlock) }));
   const workingCopy = revisionDraft ? JSON.parse(revisionDraft.snapshot_json) as { sections?: EditableSection[] } : null;
   const workingSections = workingCopy?.sections?.map(section => ({ ...section, blocks: section.blocks?.length ? section.blocks : liveSections.find(live => live.key === section.key)?.blocks ?? section.paragraphs.map(text => ({ type: "PARAGRAPH" as const, text })) }));
-  return Response.json({ question: { ...question, sections: workingSections ?? liveSections, liveSections, hasPendingRevision: !!revisionDraft, revisionDraftUpdatedAt: revisionDraft?.updated_at ?? null, revisions: revisionsResult.results ?? [] } });
+  return Response.json({ question: { ...question, sections: workingSections ?? liveSections, liveSections, hasPendingRevision: !!revisionDraft, revisionDraftUpdatedAt: revisionDraft?.updated_at ?? null, revisions: revisionsResult.results ?? [] } }, { headers: editorialHeaders });
 }
 
 export async function PATCH(request: Request, { params }: { params: Promise<{ id: string }> }) {

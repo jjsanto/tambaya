@@ -34,7 +34,7 @@ export function EditorialWorkspace() {
   }, []);
 
   const api = useCallback(async (url: string, init?: RequestInit) => {
-    const response = await fetch(url, { ...init, headers: { ...init?.headers, Authorization: `Bearer ${token}` } });
+    const response = await fetch(url, { ...init, cache: "no-store", headers: { ...init?.headers, Authorization: `Bearer ${token.trim()}` } });
     const result = await response.json() as { error?: string; questions?: EditorialQuestion[]; question?: EditorialDetail };
     if (!response.ok) throw new Error(result.error ?? "The editorial request failed.");
     return result;
@@ -44,7 +44,7 @@ export function EditorialWorkspace() {
     if (!token) return;
     setBusy(true);
     try {
-      sessionStorage.setItem("tambaya-editorial-token", token);
+      sessionStorage.setItem("tambaya-editorial-token", token.trim());
       const result = await api("/api/editorial/questions");
       setQuestions(result.questions ?? []);
       setMessage("Workspace connected to production D1.");
@@ -129,11 +129,11 @@ export function EditorialWorkspace() {
   }
 
   return <div className="editorial-workspace">
-    <section className="editorial-access">
+    <form className="editorial-access" onSubmit={event => { event.preventDefault(); void load(); }}>
       <label>Editorial token<input type="password" value={token} onChange={event => setToken(event.target.value)} placeholder="Stored only for this browser session"/></label>
-      <button className="button small" type="button" onClick={load} disabled={busy || !token}>{busy ? "Working…" : "Open workspace"}</button>
+      <button className="button small" type="submit" disabled={busy || !token.trim()}>{busy ? "Working…" : "Open workspace"}</button>
       <p role="status">{message}</p>
-    </section>
+    </form>
     {questions.length > 0 && <>
       <div className="editorial-grid">
         <form className="editorial-form" onSubmit={createDraft}>
