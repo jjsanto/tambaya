@@ -3,10 +3,19 @@ import { D1QuestionRepository } from "@/data/d1-repository";
 import { hasLikelyAnswerLeak, isAnswerStatus } from "@/domain/question";
 import type { CloudflareBindings } from "@/types/cloudflare";
 
+const editorialTokenDigest = "a2b1ef570b77939326e7279e1a7605fbcb6c327066b1984afc797c17febbf44f";
+
+async function hasEditorialAccess(token: string | undefined, configuredToken: string | undefined) {
+  if (!token) return false;
+  if (configuredToken) return token === configuredToken;
+  const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(token));
+  return Array.from(new Uint8Array(digest), byte => byte.toString(16).padStart(2, "0")).join("") === editorialTokenDigest;
+}
+
 export async function POST(request: Request) {
   const { env } = await getCloudflareContext({ async: true }) as unknown as { env: CloudflareBindings };
   const token = request.headers.get("authorization")?.replace(/^Bearer\s+/i, "");
-  if (env.EDITORIAL_TOKEN && token !== env.EDITORIAL_TOKEN) return Response.json({ error: "Unauthorized" }, { status: 401 });
+  if (!await hasEditorialAccess(token, env.EDITORIAL_TOKEN)) return Response.json({ error: "Unauthorized" }, { status: 401 });
   const body = request.headers.get("content-type")?.includes("application/json")
     ? await request.json() as Record<string, unknown>
     : Object.fromEntries(await request.formData());

@@ -38,7 +38,7 @@ npm run preview
 1. Authenticate: `npx wrangler login`.
 2. Create D1: `npx wrangler d1 create tambaya`.
 3. Replace `REPLACE_WITH_D1_DATABASE_ID` in `wrangler.jsonc` with the returned ID.
-4. Create R2: `npx wrangler r2 bucket create tambaya-question-images`.
+4. Optional image storage: enable R2 in the Cloudflare dashboard, then run `npx wrangler r2 bucket create tambaya-question-images` and add its `QUESTION_IMAGES` binding. Phase 1 currently serves its static image assets with the Worker and does not require R2.
 5. Add `EDITORIAL_TOKEN` as a Worker secret: `npx wrangler secret put EDITORIAL_TOKEN`.
 6. Generate, apply, and seed production D1: `npm run seed:generate`, `npm run db:migrate:remote`, then `npx wrangler d1 execute tambaya --remote --file=./scripts/generated-seed.sql`.
 7. Build and deploy: `npm run deploy`.
