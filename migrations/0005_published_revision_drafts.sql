@@ -1,0 +1,6 @@
+CREATE TABLE question_revision_drafts (
+  question_id TEXT PRIMARY KEY REFERENCES questions(id) ON DELETE CASCADE,
+  snapshot_json TEXT NOT NULL,
+  created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+);

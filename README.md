@@ -47,7 +47,7 @@ The configuration follows Cloudflare’s current Workers + OpenNext convention: 
 
 ## Editorial workspace
 
-`/editorial` is a token-protected D1 workspace. An editor can create private drafts, write a structured multi-section Story, retain revision events, load the review queue, choose verified status metadata, and publish a reviewed question. Publishing requires an answer-free context summary of at least 150 characters and at least three reviewed Story sections. The browser keeps the supplied token in session storage only.
+`/editorial` is a token-protected D1 workspace. An editor can create private drafts, write a structured multi-section Story, retain revision events, load the review queue, choose verified status metadata, and publish a reviewed question. Published Stories are reviewed through isolated working copies: editors can save, discard, or atomically publish a revision without modifying live content mid-review, and the replaced Story is retained in the audit snapshot. Publishing requires an answer-free context summary of at least 150 characters and at least three reviewed Story sections. The browser keeps the supplied token in session storage only.
 
 The underlying API accepts `Authorization: Bearer <EDITORIAL_TOKEN>`: `GET` and `POST` on `/api/editorial/questions` list records and create drafts; `GET /api/editorial/questions/:id` loads normalized Story content and recent revision events; and `PATCH` saves Story revisions or performs controlled publication.
 
