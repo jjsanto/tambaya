@@ -1,12 +1,24 @@
 "use client";
 
 import { FormEvent, useCallback, useEffect, useState } from "react";
+import type { StoryBlock } from "@/domain/question";
 
 type EditorialQuestion = { id: string; slug: string; question_text: string; publication_state: "DRAFT" | "PUBLISHED" | "ARCHIVED"; claimed_status: string; verified_status: string | null; verification_state: string; category_name: string; context_summary: string; updated_at: string; section_count: number };
-type StoryEditorSection = { key: string; kicker: string; title: string; paragraphs: string[] };
+type StoryEditorSection = { key: string; kicker: string; title: string; paragraphs: string[]; blocks?: StoryBlock[] };
 type EditorialDetail = EditorialQuestion & { sections: StoryEditorSection[]; liveSections: StoryEditorSection[]; hasPendingRevision: boolean; revisionDraftUpdatedAt: string | null; revisions: { id: string; action: string; created_at: string }[] };
 
 const labels: Record<string, string> = { OPEN: "Open", PARTIALLY_ANSWERED: "Partially answered", ANSWERED: "Answered" };
+
+function RichBlockFields({ block, onChange, onRemove }: { block: StoryBlock; onChange: (block: StoryBlock) => void; onRemove: () => void }) {
+  return <article className="block-editor"><header><strong>{block.type.toLowerCase()}</strong><button type="button" onClick={onRemove}>Remove</button></header>
+    {block.type === "HEADING" && <><label>Heading<input value={block.text} onChange={event => onChange({ ...block,text:event.target.value })}/></label><label>Level<select value={block.level} onChange={event => onChange({ ...block,level:Number(event.target.value) as 3|4 })}><option value="3">Heading 3</option><option value="4">Heading 4</option></select></label></>}
+    {block.type === "IMAGE" && <><label>HTTPS image URL<input value={block.src} onChange={event => onChange({ ...block,src:event.target.value })}/></label><label>Alternative text<input value={block.alt} onChange={event => onChange({ ...block,alt:event.target.value })}/></label><label>Caption<input value={block.caption ?? ""} onChange={event => onChange({ ...block,caption:event.target.value })}/></label><label>Credit<input value={block.credit ?? ""} onChange={event => onChange({ ...block,credit:event.target.value })}/></label><label>Source URL<input value={block.sourceUrl ?? ""} onChange={event => onChange({ ...block,sourceUrl:event.target.value })}/></label></>}
+    {block.type === "TABLE" && <><label>Caption<input value={block.caption ?? ""} onChange={event => onChange({ ...block,caption:event.target.value })}/></label><label>Headers (use | between cells)<input value={block.headers.join(" | ")} onChange={event => onChange({ ...block,headers:event.target.value.split("|").map(value => value.trim()) })}/></label><label>Rows (one row per line; use | between cells)<textarea rows={5} value={block.rows.map(row => row.join(" | ")).join("\n")} onChange={event => onChange({ ...block,rows:event.target.value.split("\n").filter(Boolean).map(row => row.split("|").map(value => value.trim())) })}/></label></>}
+    {block.type === "LIST" && <><label>Style<select value={block.style} onChange={event => onChange({ ...block,style:event.target.value as "ORDERED"|"UNORDERED" })}><option value="UNORDERED">Bullets</option><option value="ORDERED">Numbered</option></select></label><label>Items (one per line)<textarea rows={5} value={block.items.join("\n")} onChange={event => onChange({ ...block,items:event.target.value.split("\n") })}/></label></>}
+    {block.type === "QUOTE" && <><label>Quotation<textarea rows={4} value={block.text} onChange={event => onChange({ ...block,text:event.target.value })}/></label><label>Attribution<input value={block.attribution ?? ""} onChange={event => onChange({ ...block,attribution:event.target.value })}/></label><label>Source URL<input value={block.sourceUrl ?? ""} onChange={event => onChange({ ...block,sourceUrl:event.target.value })}/></label></>}
+    {block.type === "CALLOUT" && <><label>Title<input value={block.title ?? ""} onChange={event => onChange({ ...block,title:event.target.value })}/></label><label>Tone<select value={block.tone} onChange={event => onChange({ ...block,tone:event.target.value as "NOTE"|"CONTEXT"|"CAUTION" })}><option value="NOTE">Note</option><option value="CONTEXT">Context</option><option value="CAUTION">Caution</option></select></label><label>Text<textarea rows={4} value={block.text} onChange={event => onChange({ ...block,text:event.target.value })}/></label></>}
+  </article>;
+}
 
 export function EditorialWorkspace() {
   const [token, setToken] = useState("");
@@ -73,8 +85,21 @@ export function EditorialWorkspace() {
   }
 
   function updateSection(index: number, field: "kicker" | "title" | "paragraph", value: string) {
-    setEditorSections(current => current.map((section, position) => position === index ? { ...section, ...(field === "paragraph" ? { paragraphs: [value] } : { [field]: value }) } : section));
+    setEditorSections(current => current.map((section, position) => {
+      if (position !== index) return section;
+      if (field !== "paragraph") return { ...section, [field]: value };
+      const blocks = section.blocks?.length ? section.blocks.map((block, blockIndex) => blockIndex === 0 && block.type === "PARAGRAPH" ? { ...block, text: value } : block) : [{ type: "PARAGRAPH" as const, text: value }];
+      return { ...section, paragraphs: [value], blocks };
+    }));
   }
+
+  function addBlock(sectionIndex: number, type: StoryBlock["type"]) {
+    const block: StoryBlock = type === "IMAGE" ? { type, src: "https://", alt: "", caption: "", credit: "" } : type === "TABLE" ? { type, caption: "", headers: ["Column 1","Column 2"], rows: [["",""]] } : type === "LIST" ? { type, style: "UNORDERED", items: [""] } : type === "QUOTE" ? { type, text: "", attribution: "" } : type === "CALLOUT" ? { type, tone: "CONTEXT", title: "", text: "" } : type === "HEADING" ? { type, level: 3, text: "" } : { type, text: "" };
+    setEditorSections(current => current.map((section,index) => index === sectionIndex ? { ...section, blocks: [...(section.blocks ?? section.paragraphs.map(text => ({ type: "PARAGRAPH" as const, text }))),block] } : section));
+  }
+
+  function replaceBlock(sectionIndex: number, blockIndex: number, block: StoryBlock) { setEditorSections(current => current.map((section,index) => index === sectionIndex ? { ...section, blocks: (section.blocks ?? []).map((item,position) => position === blockIndex ? block : item) } : section)); }
+  function removeBlock(sectionIndex: number, blockIndex: number) { setEditorSections(current => current.map((section,index) => index === sectionIndex ? { ...section, blocks: (section.blocks ?? []).filter((_,position) => position !== blockIndex) } : section)); }
 
   async function saveStory(event: FormEvent<HTMLFormElement>) {
     event.preventDefault(); if (!editing) return; setBusy(true);
@@ -121,7 +146,7 @@ export function EditorialWorkspace() {
         </form>
         <section className="editorial-queue"><span className="eyebrow">Review queue</span><h2>Questions in D1</h2>
           {editing && <form className="story-editor" onSubmit={saveStory}><div className="story-editor-head"><div><small>Private Story revision</small><h3>{editing.question_text}</h3></div><button type="button" className="text-link" onClick={() => setEditing(null)}>Close</button></div>
-            {editorSections.map((section, index) => <fieldset key={`${section.key}-${index}`}><legend>Section {index + 1}</legend><label>Kicker<input required value={section.kicker} onChange={event => updateSection(index,"kicker",event.target.value)}/></label><label>Title<input required minLength={4} value={section.title} onChange={event => updateSection(index,"title",event.target.value)}/></label><label>Paragraph<textarea required minLength={80} rows={6} value={section.paragraphs[0] ?? ""} onChange={event => updateSection(index,"paragraph",event.target.value)} placeholder="At least 80 characters of historical or contextual material that does not resolve the question."/></label></fieldset>)}
+            {editorSections.map((section, index) => <fieldset key={`${section.key}-${index}`}><legend>Section {index + 1}</legend><label>Kicker<input required value={section.kicker} onChange={event => updateSection(index,"kicker",event.target.value)}/></label><label>Title<input required minLength={4} value={section.title} onChange={event => updateSection(index,"title",event.target.value)}/></label><label>Core paragraph<textarea required minLength={80} rows={6} value={section.paragraphs[0] ?? ""} onChange={event => updateSection(index,"paragraph",event.target.value)} placeholder="At least 80 characters of historical or contextual material that does not resolve the question."/></label><div className="block-editor-list">{(section.blocks ?? []).map((block, blockIndex) => block.type === "PARAGRAPH" && blockIndex === 0 ? null : <RichBlockFields key={blockIndex} block={block} onChange={value => replaceBlock(index,blockIndex,value)} onRemove={() => removeBlock(index,blockIndex)}/>)}</div><div className="add-block"><span>Enrich section:</span>{(["HEADING","IMAGE","TABLE","LIST","QUOTE","CALLOUT"] as StoryBlock["type"][]).map(type => <button type="button" key={type} onClick={() => addBlock(index,type)}>+ {type.toLowerCase()}</button>)}</div></fieldset>)}
             <div className="story-editor-controls"><button type="button" className="button ghost small" onClick={() => setEditorSections(current => [...current,{ key:`section-${current.length + 1}`,kicker:"Context",title:"",paragraphs:[""] }])}>Add section</button><span>{editing.publication_state === "PUBLISHED" && <button className="button ghost small" type="button" disabled={busy} onClick={() => void discardRevision()}>Discard</button>}<button className="button small" disabled={busy}>Save revision</button>{editing.publication_state === "PUBLISHED" && editing.hasPendingRevision && <button className="button small publish-revision" type="button" disabled={busy} onClick={() => void publishRevision()}>Publish revision</button>}</span></div>{editing.revisions.length > 0 && <small>{editing.revisions.length} recent revision event{editing.revisions.length === 1 ? "" : "s"} retained.</small>}
           </form>}
           {questions.map(question => <article key={question.id} className={`editorial-record ${question.publication_state.toLowerCase()}`}>

@@ -1,4 +1,4 @@
-import { slugifyQuestion, type AnswerStatus, type EditorialReview, type PublicQuestion, type QuestionReference, type RelationshipType, type TimelineEvent } from "@/domain/question";
+import { slugifyQuestion, type AnswerStatus, type EditorialReview, type PublicQuestion, type QuestionReference, type RelationshipType, type StoryBlock, type TimelineEvent } from "@/domain/question";
 import type { D1DatabaseLike } from "@/types/cloudflare";
 import type { CategorySummary, QuestionFilters, QuestionRepository, QuestionRow } from "./repository";
 
@@ -8,6 +8,7 @@ type ReferenceRow = { title: string; publisher: string; source_url: string; purp
 type TagRow = { name: string };
 type StoryRow = { id: string; section_key: string; kicker: string; title: string; provenance: EditorialReview["provenance"]; answer_leak_state: EditorialReview["answerLeakState"]; reviewed_at: string };
 type ParagraphRow = { section_id: string; body: string };
+type BlockRow = { section_id: string; block_type: StoryBlock["type"]; data_json: string };
 type PersonRow = { name: string; period: string; association: string };
 type TermRow = { term: string; description: string };
 type BranchRow = { question_text: string; relationship_type: RelationshipType };
@@ -16,13 +17,14 @@ export class D1QuestionRepository implements QuestionRepository {
   constructor(private readonly db: D1DatabaseLike) {}
 
   private async hydrate(row: QuestionRow): Promise<PublicQuestion> {
-    const [sectionsResult, timelineResult, refsResult, tagsResult, storyResult, paragraphResult, peopleResult, termsResult, branchesResult] = await Promise.all([
+    const [sectionsResult, timelineResult, refsResult, tagsResult, storyResult, paragraphResult, blockResult, peopleResult, termsResult, branchesResult] = await Promise.all([
       this.db.prepare("SELECT section_type, body, provenance, reviewed_at, answer_leak_state FROM question_content_sections WHERE question_id = ? AND publication_state = 'PUBLISHED' ORDER BY position").bind(row.id).all<SectionRow>(),
       this.db.prepare("SELECT display_date, title, description FROM timeline_events WHERE question_id = ? ORDER BY position").bind(row.id).all<TimelineRow>(),
       this.db.prepare("SELECT title, COALESCE(publisher,'') publisher, source_url, purpose FROM question_references WHERE question_id = ? ORDER BY position").bind(row.id).all<ReferenceRow>(),
       this.db.prepare("SELECT t.name FROM tags t JOIN question_tags qt ON qt.tag_id = t.id WHERE qt.question_id = ? ORDER BY t.name").bind(row.id).all<TagRow>(),
       this.db.prepare("SELECT id,section_key,kicker,title,provenance,answer_leak_state,COALESCE(reviewed_at,'') reviewed_at FROM question_story_sections WHERE question_id=? ORDER BY position").bind(row.id).all<StoryRow>(),
       this.db.prepare("SELECT p.section_id,p.body FROM question_story_paragraphs p JOIN question_story_sections s ON s.id=p.section_id WHERE s.question_id=? ORDER BY s.position,p.position").bind(row.id).all<ParagraphRow>(),
+      this.db.prepare("SELECT b.section_id,b.block_type,b.data_json FROM question_story_blocks b JOIN question_story_sections s ON s.id=b.section_id WHERE s.question_id=? AND b.answer_leak_state='PASSED' ORDER BY s.position,b.position").bind(row.id).all<BlockRow>(),
       this.db.prepare("SELECT name,period,association FROM person_associations WHERE question_id=? ORDER BY position").bind(row.id).all<PersonRow>(),
       this.db.prepare("SELECT term,description FROM question_key_terms WHERE question_id=? ORDER BY position").bind(row.id).all<TermRow>(),
       this.db.prepare("SELECT question_text,relationship_type FROM question_branches WHERE question_id=? ORDER BY position").bind(row.id).all<BranchRow>(),
@@ -40,7 +42,7 @@ export class D1QuestionRepository implements QuestionRepository {
       evolution: body("EVOLUTION"), whyAsked: body("WHY_ASKED"), whyItMatters: body("WHY_IT_MATTERS"), whereItAppears: body("WHERE_IT_APPEARS"),
       timeline: (timelineResult.results ?? []).map<TimelineEvent>(event => ({ year: event.display_date, title: event.title, description: event.description })),
       references: (refsResult.results ?? []).map(ref => ({ title: ref.title, publisher: ref.publisher, url: ref.source_url, purpose: ref.purpose })),
-      storySections: (storyResult.results ?? []).map(section => ({ id: section.section_key, kicker: section.kicker, title: section.title, paragraphs: (paragraphResult.results ?? []).filter(paragraph => paragraph.section_id === section.id).map(paragraph => paragraph.body), review: { provenance: section.provenance, answerLeakState: section.answer_leak_state, reviewedAt: section.reviewed_at } })),
+      storySections: (storyResult.results ?? []).map(section => ({ id: section.section_key, kicker: section.kicker, title: section.title, paragraphs: (paragraphResult.results ?? []).filter(paragraph => paragraph.section_id === section.id).map(paragraph => paragraph.body), blocks: (blockResult.results ?? []).filter(block => block.section_id === section.id).map(block => ({ type: block.block_type, ...JSON.parse(block.data_json) }) as StoryBlock), review: { provenance: section.provenance, answerLeakState: section.answer_leak_state, reviewedAt: section.reviewed_at } })),
       people: peopleResult.results ?? [], keyTerms: termsResult.results ?? [], branches: (branchesResult.results ?? []).map(branch => ({ question: branch.question_text, relationship: branch.relationship_type })),
       editorialReview: { SUMMARY: review("SUMMARY"), ORIGINS: review("ORIGINS"), EVOLUTION: review("EVOLUTION"), WHY_ASKED: review("WHY_ASKED"), WHY_IT_MATTERS: review("WHY_IT_MATTERS"), WHERE_IT_APPEARS: review("WHERE_IT_APPEARS") },
     };

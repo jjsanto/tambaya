@@ -1,14 +1,41 @@
 import { getCloudflareContext } from "@opennextjs/cloudflare";
-import { hasLikelyAnswerLeak, isAnswerStatus } from "@/domain/question";
+import { hasLikelyAnswerLeak, isAnswerStatus, type StoryBlock } from "@/domain/question";
 import { hasEditorialAccess, unauthorized } from "@/lib/editorial-auth";
 import type { CloudflareBindings } from "@/types/cloudflare";
 
 type DraftRow = { id: string; question_text: string; context_summary: string; publication_state: string };
 type SectionRow = { id: string; section_key: string; kicker: string; title: string; position: number };
 type ParagraphRow = { section_id: string; body: string; position: number };
+type BlockRow = { section_id: string; block_type: StoryBlock["type"]; data_json: string; position: number };
 type RevisionRow = { id: string; action: string; created_at: string };
 type RevisionDraftRow = { snapshot_json: string; created_at: string; updated_at: string };
-type EditableSection = { key: string; kicker: string; title: string; paragraphs: string[] };
+type EditableSection = { key: string; kicker: string; title: string; paragraphs: string[]; blocks?: StoryBlock[] };
+
+function normalizeBlocks(value: unknown): StoryBlock[] | null {
+  if (!Array.isArray(value) || value.length > 40) return null;
+  const output: StoryBlock[] = [];
+  for (const item of value) {
+    const block = item as Record<string, unknown>; const type = String(block.type ?? "");
+    if (type === "PARAGRAPH" || type === "HEADING" || type === "QUOTE" || type === "CALLOUT") {
+      const text = String(block.text ?? "").trim(); if (!text || hasLikelyAnswerLeak(text)) return null;
+      if (type === "PARAGRAPH") output.push({ type, text });
+      else if (type === "HEADING") output.push({ type, text, level: block.level === 4 ? 4 : 3 });
+      else if (type === "QUOTE") output.push({ type, text, attribution: String(block.attribution ?? "").trim() || undefined, sourceUrl: String(block.sourceUrl ?? "").trim() || undefined });
+      else output.push({ type, text, title: String(block.title ?? "").trim() || undefined, tone: ["NOTE","CONTEXT","CAUTION"].includes(String(block.tone)) ? block.tone as "NOTE" | "CONTEXT" | "CAUTION" : "NOTE" });
+    } else if (type === "IMAGE") {
+      const src = String(block.src ?? "").trim(); const alt = String(block.alt ?? "").trim(); if ((!src.startsWith("/") && !/^https:\/\//i.test(src)) || !alt) return null;
+      output.push({ type, src, alt, caption: String(block.caption ?? "").trim() || undefined, credit: String(block.credit ?? "").trim() || undefined, sourceUrl: String(block.sourceUrl ?? "").trim() || undefined });
+    } else if (type === "LIST") {
+      const items = Array.isArray(block.items) ? block.items.map(String).map(text => text.trim()).filter(Boolean) : []; if (!items.length || items.some(hasLikelyAnswerLeak)) return null;
+      output.push({ type, style: block.style === "ORDERED" ? "ORDERED" : "UNORDERED", items });
+    } else if (type === "TABLE") {
+      const headers = Array.isArray(block.headers) ? block.headers.map(String).map(text => text.trim()) : []; const rows = Array.isArray(block.rows) ? block.rows.map(row => Array.isArray(row) ? row.map(String).map(text => text.trim()) : []) : [];
+      if (!headers.length || headers.length > 12 || !rows.length || rows.length > 100 || rows.some(row => row.length !== headers.length) || [...headers,...rows.flat()].some(hasLikelyAnswerLeak)) return null;
+      output.push({ type, caption: String(block.caption ?? "").trim() || undefined, headers, rows });
+    } else return null;
+  }
+  return output;
+}
 
 async function runtime() {
   return await getCloudflareContext({ async: true }) as unknown as { env: CloudflareBindings };
@@ -20,16 +47,19 @@ export async function GET(request: Request, { params }: { params: Promise<{ id: 
   const { id } = await params;
   const question = await env.DB.prepare("SELECT id,question_text,context_summary,publication_state FROM questions WHERE id=?").bind(id).first<DraftRow>();
   if (!question) return Response.json({ error: "Question not found." }, { status: 404 });
-  const [sectionsResult, paragraphsResult, revisionsResult, revisionDraft] = await Promise.all([
+  const [sectionsResult, paragraphsResult, blocksResult, revisionsResult, revisionDraft] = await Promise.all([
     env.DB.prepare("SELECT id,section_key,kicker,title,position FROM question_story_sections WHERE question_id=? ORDER BY position").bind(id).all<SectionRow>(),
     env.DB.prepare("SELECT p.section_id,p.body,p.position FROM question_story_paragraphs p JOIN question_story_sections s ON s.id=p.section_id WHERE s.question_id=? ORDER BY s.position,p.position").bind(id).all<ParagraphRow>(),
+    env.DB.prepare("SELECT b.section_id,b.block_type,b.data_json,b.position FROM question_story_blocks b JOIN question_story_sections s ON s.id=b.section_id WHERE s.question_id=? ORDER BY s.position,b.position").bind(id).all<BlockRow>(),
     env.DB.prepare("SELECT id,action,created_at FROM editorial_revisions WHERE question_id=? ORDER BY created_at DESC LIMIT 12").bind(id).all<RevisionRow>(),
     env.DB.prepare("SELECT snapshot_json,created_at,updated_at FROM question_revision_drafts WHERE question_id=?").bind(id).first<RevisionDraftRow>(),
   ]);
   const paragraphs = paragraphsResult.results ?? [];
-  const liveSections = (sectionsResult.results ?? []).map(section => ({ key: section.section_key, kicker: section.kicker, title: section.title, paragraphs: paragraphs.filter(item => item.section_id === section.id).map(item => item.body) }));
+  const blocks = blocksResult.results ?? [];
+  const liveSections = (sectionsResult.results ?? []).map(section => ({ key: section.section_key, kicker: section.kicker, title: section.title, paragraphs: paragraphs.filter(item => item.section_id === section.id).map(item => item.body), blocks: blocks.filter(item => item.section_id === section.id).map(item => ({ type: item.block_type, ...JSON.parse(item.data_json) }) as StoryBlock) }));
   const workingCopy = revisionDraft ? JSON.parse(revisionDraft.snapshot_json) as { sections?: EditableSection[] } : null;
-  return Response.json({ question: { ...question, sections: workingCopy?.sections ?? liveSections, liveSections, hasPendingRevision: !!revisionDraft, revisionDraftUpdatedAt: revisionDraft?.updated_at ?? null, revisions: revisionsResult.results ?? [] } });
+  const workingSections = workingCopy?.sections?.map(section => ({ ...section, blocks: section.blocks?.length ? section.blocks : liveSections.find(live => live.key === section.key)?.blocks ?? section.paragraphs.map(text => ({ type: "PARAGRAPH" as const, text })) }));
+  return Response.json({ question: { ...question, sections: workingSections ?? liveSections, liveSections, hasPendingRevision: !!revisionDraft, revisionDraftUpdatedAt: revisionDraft?.updated_at ?? null, revisions: revisionsResult.results ?? [] } });
 }
 
 export async function PATCH(request: Request, { params }: { params: Promise<{ id: string }> }) {
@@ -45,8 +75,10 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
     if (!existingDraft) {
       const sectionsResult = await env.DB.prepare("SELECT id,section_key,kicker,title FROM question_story_sections WHERE question_id=? ORDER BY position").bind(id).all<SectionRow>();
       const paragraphsResult = await env.DB.prepare("SELECT p.section_id,p.body FROM question_story_paragraphs p JOIN question_story_sections s ON s.id=p.section_id WHERE s.question_id=? ORDER BY s.position,p.position").bind(id).all<ParagraphRow>();
+      const blocksResult = await env.DB.prepare("SELECT b.section_id,b.block_type,b.data_json,b.position FROM question_story_blocks b JOIN question_story_sections s ON s.id=b.section_id WHERE s.question_id=? ORDER BY s.position,b.position").bind(id).all<BlockRow>();
       const paragraphs = paragraphsResult.results ?? [];
-      const sections = (sectionsResult.results ?? []).map(section => ({ key: section.section_key, kicker: section.kicker, title: section.title, paragraphs: paragraphs.filter(item => item.section_id === section.id).map(item => item.body) }));
+      const blocks = blocksResult.results ?? [];
+      const sections = (sectionsResult.results ?? []).map(section => ({ key: section.section_key, kicker: section.kicker, title: section.title, paragraphs: paragraphs.filter(item => item.section_id === section.id).map(item => item.body), blocks: blocks.filter(item => item.section_id === section.id).map(item => ({ type: item.block_type, ...JSON.parse(item.data_json) }) as StoryBlock) }));
       await env.DB.prepare("INSERT INTO question_revision_drafts (question_id,snapshot_json) VALUES (?,?)").bind(id,JSON.stringify({ questionText: draft.question_text, contextSummary: draft.context_summary, sections })).run();
     }
     return Response.json({ id, revisionState: "DRAFT" });
@@ -63,13 +95,15 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
     for (const [position, value] of body.sections.entries()) {
       const section = value as Record<string, unknown>; const title = String(section.title ?? "").trim();
       const paragraphs = Array.isArray(section.paragraphs) ? section.paragraphs.map(item => String(item).trim()).filter(Boolean) : [];
-      if (!String(section.kicker ?? "").trim() || title.length < 4 || paragraphs.length === 0 || paragraphs.some(paragraph => paragraph.length < 80 || hasLikelyAnswerLeak(paragraph))) return Response.json({ error: `Section ${position + 1} needs a title and answer-free paragraphs of at least 80 characters.` }, { status: 400 });
+      const blocks = section.blocks === undefined ? paragraphs.map(text => ({ type: "PARAGRAPH", text })) : normalizeBlocks(section.blocks);
+      if (!String(section.kicker ?? "").trim() || title.length < 4 || paragraphs.length === 0 || paragraphs.some(paragraph => paragraph.length < 80 || hasLikelyAnswerLeak(paragraph)) || !blocks?.length) return Response.json({ error: `Section ${position + 1} needs a title, an answer-free paragraph of at least 80 characters, and valid content blocks.` }, { status: 400 });
     }
     const sections = body.sections.map((value, position) => {
       const section = value as Record<string, unknown>;
       const kicker = String(section.kicker ?? "").trim(); const title = String(section.title ?? "").trim();
       const paragraphs = Array.isArray(section.paragraphs) ? section.paragraphs.map(item => String(item).trim()).filter(Boolean) : [];
-      return { key: String(section.key ?? `section-${position + 1}`).replace(/[^a-z0-9-]/gi,"-").toLowerCase(), kicker, title, paragraphs };
+      const blocks = normalizeBlocks(section.blocks) ?? paragraphs.map(text => ({ type: "PARAGRAPH" as const, text }));
+      return { key: String(section.key ?? `section-${position + 1}`).replace(/[^a-z0-9-]/gi,"-").toLowerCase(), kicker, title, paragraphs, blocks };
     });
     const snapshot = JSON.stringify({ questionText: draft.question_text, contextSummary: draft.context_summary, sections });
     if (isPublishedRevision) {
@@ -83,10 +117,11 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
     }
     const existing = await env.DB.prepare("SELECT id FROM question_story_sections WHERE question_id=?").bind(id).all<{ id: string }>();
     const statements = [
+      ...(existing.results ?? []).map(section => env.DB.prepare("DELETE FROM question_story_blocks WHERE section_id=?").bind(section.id)),
       ...(existing.results ?? []).map(section => env.DB.prepare("DELETE FROM question_story_paragraphs WHERE section_id=?").bind(section.id)),
       env.DB.prepare("DELETE FROM question_story_sections WHERE question_id=?").bind(id),
     ];
-    sections.forEach((section, position) => { const sectionId = crypto.randomUUID(); statements.push(env.DB.prepare("INSERT INTO question_story_sections (id,question_id,section_key,kicker,title,provenance,answer_leak_state,position) VALUES (?,?,?,?,?,'EDITORIAL','PENDING',?)").bind(sectionId,id,section.key,section.kicker,section.title,position)); section.paragraphs.forEach((paragraph, paragraphPosition) => statements.push(env.DB.prepare("INSERT INTO question_story_paragraphs (id,section_id,body,position) VALUES (?,?,?,?)").bind(crypto.randomUUID(),sectionId,paragraph,paragraphPosition))); });
+    sections.forEach((section, position) => { const sectionId = crypto.randomUUID(); statements.push(env.DB.prepare("INSERT INTO question_story_sections (id,question_id,section_key,kicker,title,provenance,answer_leak_state,position) VALUES (?,?,?,?,?,'EDITORIAL','PENDING',?)").bind(sectionId,id,section.key,section.kicker,section.title,position)); section.paragraphs.forEach((paragraph, paragraphPosition) => statements.push(env.DB.prepare("INSERT INTO question_story_paragraphs (id,section_id,body,position) VALUES (?,?,?,?)").bind(crypto.randomUUID(),sectionId,paragraph,paragraphPosition))); section.blocks.forEach((block, blockPosition) => { const { type, ...data } = block; statements.push(env.DB.prepare("INSERT INTO question_story_blocks (id,section_id,block_type,data_json,position,answer_leak_state) VALUES (?,?,?,?,?,'PENDING')").bind(crypto.randomUUID(),sectionId,type,JSON.stringify(data),blockPosition)); }); });
     statements.push(env.DB.prepare("INSERT INTO editorial_revisions (id,question_id,action,snapshot_json) VALUES (?,?,'STORY_SAVED',?)").bind(crypto.randomUUID(),id,snapshot));
     statements.push(env.DB.prepare("UPDATE questions SET updated_at=CURRENT_TIMESTAMP WHERE id=?").bind(id));
     await env.DB.batch(statements);
@@ -103,10 +138,11 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
     const paragraphRows = currentParagraphs.results ?? [];
     const previousSections = (currentSections.results ?? []).map(section => ({ key: section.section_key, kicker: section.kicker, title: section.title, paragraphs: paragraphRows.filter(item => item.section_id === section.id).map(item => item.body) }));
     const statements = [
+      ...(currentSections.results ?? []).map(section => env.DB.prepare("DELETE FROM question_story_blocks WHERE section_id=?").bind(section.id)),
       ...(currentSections.results ?? []).map(section => env.DB.prepare("DELETE FROM question_story_paragraphs WHERE section_id=?").bind(section.id)),
       env.DB.prepare("DELETE FROM question_story_sections WHERE question_id=?").bind(id),
     ];
-    revised.sections.forEach((section, position) => { const sectionId = crypto.randomUUID(); statements.push(env.DB.prepare("INSERT INTO question_story_sections (id,question_id,section_key,kicker,title,provenance,answer_leak_state,reviewed_at,position) VALUES (?,?,?,?,?,'EDITORIAL','PASSED',CURRENT_TIMESTAMP,?)").bind(sectionId,id,section.key,section.kicker,section.title,position)); section.paragraphs.forEach((paragraph, paragraphPosition) => statements.push(env.DB.prepare("INSERT INTO question_story_paragraphs (id,section_id,body,position) VALUES (?,?,?,?)").bind(crypto.randomUUID(),sectionId,paragraph,paragraphPosition))); });
+    revised.sections.forEach((section, position) => { const sectionId = crypto.randomUUID(); statements.push(env.DB.prepare("INSERT INTO question_story_sections (id,question_id,section_key,kicker,title,provenance,answer_leak_state,reviewed_at,position) VALUES (?,?,?,?,?,'EDITORIAL','PASSED',CURRENT_TIMESTAMP,?)").bind(sectionId,id,section.key,section.kicker,section.title,position)); section.paragraphs.forEach((paragraph, paragraphPosition) => statements.push(env.DB.prepare("INSERT INTO question_story_paragraphs (id,section_id,body,position) VALUES (?,?,?,?)").bind(crypto.randomUUID(),sectionId,paragraph,paragraphPosition))); (section.blocks ?? section.paragraphs.map(text => ({ type: "PARAGRAPH" as const, text }))).forEach((block, blockPosition) => { const { type, ...data } = block; statements.push(env.DB.prepare("INSERT INTO question_story_blocks (id,section_id,block_type,data_json,position,answer_leak_state) VALUES (?,?,?,?,?,'PASSED')").bind(crypto.randomUUID(),sectionId,type,JSON.stringify(data),blockPosition)); }); });
     statements.push(env.DB.prepare("INSERT INTO editorial_revisions (id,question_id,action,snapshot_json) VALUES (?,?,'PUBLISHED',?)").bind(crypto.randomUUID(),id,JSON.stringify({ previousSections, publishedSections: revised.sections })));
     statements.push(env.DB.prepare("DELETE FROM question_revision_drafts WHERE question_id=?").bind(id));
     statements.push(env.DB.prepare("UPDATE questions SET updated_at=CURRENT_TIMESTAMP WHERE id=?").bind(id));
@@ -122,6 +158,7 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
   await env.DB.batch([
     env.DB.prepare("UPDATE question_content_sections SET publication_state='PUBLISHED',answer_leak_state='PASSED',reviewed_by='EDITORIAL',reviewed_at=CURRENT_TIMESTAMP,updated_at=CURRENT_TIMESTAMP WHERE question_id=? AND section_type='SUMMARY'").bind(id),
     env.DB.prepare("UPDATE question_story_sections SET answer_leak_state='PASSED',reviewed_at=CURRENT_TIMESTAMP WHERE question_id=?").bind(id),
+    env.DB.prepare("UPDATE question_story_blocks SET answer_leak_state='PASSED',updated_at=CURRENT_TIMESTAMP WHERE section_id IN (SELECT id FROM question_story_sections WHERE question_id=?)").bind(id),
     env.DB.prepare("UPDATE questions SET publication_state='PUBLISHED',verified_status=?,verification_state='VERIFIED',last_verified_at=CURRENT_TIMESTAMP,published_at=CURRENT_TIMESTAMP,updated_at=CURRENT_TIMESTAMP WHERE id=?").bind(body.verifiedStatus,id),
     env.DB.prepare("INSERT INTO editorial_revisions (id,question_id,action,snapshot_json) VALUES (?,?,'PUBLISHED',?)").bind(crypto.randomUUID(),id,JSON.stringify({ verifiedStatus: body.verifiedStatus })),
   ]);

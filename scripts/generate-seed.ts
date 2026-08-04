@@ -11,6 +11,7 @@ const lines = [
   "DELETE FROM question_tags;",
   "DELETE FROM tags;",
   "DELETE FROM question_content_sections;",
+  "DELETE FROM question_story_blocks;",
   "DELETE FROM question_story_paragraphs;",
   "DELETE FROM question_story_sections;",
   "DELETE FROM person_associations;",
@@ -38,6 +39,8 @@ for (const question of questions) {
     const sectionId = `${id}-story-${section.id}`;
     lines.push(`INSERT INTO question_story_sections (id,question_id,section_key,kicker,title,provenance,answer_leak_state,reviewed_at,position) VALUES (${sql(sectionId)},${sql(id)},${sql(section.id)},${sql(section.kicker)},${sql(section.title)},${sql(section.review.provenance)},${sql(section.review.answerLeakState)},${sql(section.review.reviewedAt)},${position});`);
     section.paragraphs.forEach((paragraph, paragraphPosition) => lines.push(`INSERT INTO question_story_paragraphs (id,section_id,body,position) VALUES (${sql(`${sectionId}-p-${paragraphPosition}`)},${sql(sectionId)},${sql(paragraph)},${paragraphPosition});`));
+    const blocks = section.blocks?.length ? section.blocks : section.paragraphs.map(text => ({ type: "PARAGRAPH" as const, text }));
+    blocks.forEach((block, blockPosition) => { const { type, ...data } = block; lines.push(`INSERT INTO question_story_blocks (id,section_id,block_type,data_json,position,answer_leak_state) VALUES (${sql(`${sectionId}-block-${blockPosition}`)},${sql(sectionId)},${sql(type)},${sql(JSON.stringify(data))},${blockPosition},${sql(section.review.answerLeakState)});`); });
   });
   question.people.forEach((person, position) => lines.push(`INSERT INTO person_associations (id,question_id,name,period,association,position) VALUES (${sql(`${id}-person-${position}`)},${sql(id)},${sql(person.name)},${sql(person.period)},${sql(person.association)},${position});`));
   question.keyTerms.forEach((term, position) => lines.push(`INSERT INTO question_key_terms (id,question_id,term,description,position) VALUES (${sql(`${id}-term-${position}`)},${sql(id)},${sql(term.term)},${sql(term.description)},${position});`));

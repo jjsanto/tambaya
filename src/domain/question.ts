@@ -10,7 +10,15 @@ export type RelationshipType = (typeof relationshipTypes)[number];
 export type TimelineEvent = { year: string; title: string; description: string };
 export type QuestionReference = { title: string; publisher: string; url: string; purpose: "HISTORICAL_CONTEXT" | "STATUS_VERIFICATION" | "ORIGIN" | "TIMELINE" | "BACKGROUND" };
 export type EditorialReview = { provenance: "EDITORIAL" | "PUBLISHER" | "AI_ASSISTED"; reviewedAt: string; answerLeakState: "PASSED" | "PENDING" | "REJECTED" };
-export type StorySection = { id: string; kicker: string; title: string; paragraphs: string[]; review: EditorialReview };
+export type StoryBlock =
+  | { type: "PARAGRAPH"; text: string }
+  | { type: "HEADING"; text: string; level: 3 | 4 }
+  | { type: "IMAGE"; src: string; alt: string; caption?: string; credit?: string; sourceUrl?: string }
+  | { type: "TABLE"; caption?: string; headers: string[]; rows: string[][] }
+  | { type: "LIST"; style: "ORDERED" | "UNORDERED"; items: string[] }
+  | { type: "QUOTE"; text: string; attribution?: string; sourceUrl?: string }
+  | { type: "CALLOUT"; title?: string; text: string; tone: "NOTE" | "CONTEXT" | "CAUTION" };
+export type StorySection = { id: string; kicker: string; title: string; paragraphs: string[]; blocks?: StoryBlock[]; review: EditorialReview };
 export type PersonAssociation = { name: string; period: string; association: string };
 export type KeyTerm = { term: string; description: string };
 export type QuestionBranch = { question: string; relationship: RelationshipType };

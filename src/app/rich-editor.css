@@ -1,0 +1,12 @@
+.block-editor-list { display: grid; gap: 12px; }
+.block-editor { border: 1px solid var(--line); background: var(--cream); padding: 14px; display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.block-editor header { grid-column: 1 / -1; display: flex; justify-content: space-between; }
+.block-editor header strong { text-transform: capitalize; color: var(--navy); }
+.block-editor header button { border: 0; background: none; color: #8b3d2d; cursor: pointer; }
+.block-editor label:has(textarea) { grid-column: 1 / -1; }
+.block-editor input, .block-editor textarea, .block-editor select { width: 100%; padding: 9px; border: 1px solid var(--line); background: white; }
+.add-block { display: flex; align-items: center; gap: 7px; flex-wrap: wrap; }
+.add-block span { font-size: 11px; font-weight: 800; color: var(--muted); }
+.add-block button { border: 1px solid var(--line); background: white; color: var(--navy); padding: 6px 9px; font-size: 10px; cursor: pointer; }
+.add-block button:hover { border-color: var(--gold); }
+@media (max-width: 620px) { .block-editor { grid-template-columns: 1fr; } .block-editor label { grid-column: 1 !important; } }
