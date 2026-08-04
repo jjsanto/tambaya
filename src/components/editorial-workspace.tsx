@@ -20,7 +20,7 @@ function RichBlockFields({ block, onChange, onRemove }: { block: StoryBlock; onC
   </article>;
 }
 
-export function EditorialWorkspace() {
+export function EditorialWorkspace({ connected = false }: { connected?: boolean }) {
   const [token, setToken] = useState("");
   const [questions, setQuestions] = useState<EditorialQuestion[]>([]);
   const [message, setMessage] = useState("Enter the editorial token to load the workspace.");
@@ -34,14 +34,13 @@ export function EditorialWorkspace() {
   }, []);
 
   const api = useCallback(async (url: string, init?: RequestInit) => {
-    const response = await fetch(url, { ...init, cache: "no-store", headers: { ...init?.headers, Authorization: `Bearer ${token.trim()}` } });
+    const response = await fetch(url, { ...init, cache: "no-store", credentials: "same-origin", headers: { ...init?.headers, ...(token.trim() ? { Authorization: `Bearer ${token.trim()}` } : {}) } });
     const result = await response.json() as { error?: string; questions?: EditorialQuestion[]; question?: EditorialDetail };
     if (!response.ok) throw new Error(result.error ?? "The editorial request failed.");
     return result;
   }, [token]);
 
   const load = useCallback(async () => {
-    if (!token) return;
     setBusy(true);
     try {
       sessionStorage.setItem("tambaya-editorial-token", token.trim());
@@ -51,6 +50,8 @@ export function EditorialWorkspace() {
     } catch (error) { setMessage(error instanceof Error ? error.message : "Unable to load the workspace."); }
     finally { setBusy(false); }
   }, [api, token]);
+
+  useEffect(() => { if (!connected) return; const timer = window.setTimeout(() => { void load(); }, 0); return () => window.clearTimeout(timer); }, [connected, load]);
 
   async function createDraft(event: FormEvent<HTMLFormElement>) {
     event.preventDefault(); setBusy(true);
@@ -129,11 +130,11 @@ export function EditorialWorkspace() {
   }
 
   return <div className="editorial-workspace">
-    <form className="editorial-access" onSubmit={event => { event.preventDefault(); void load(); }}>
+    {!connected ? <form className="editorial-access" onSubmit={event => { event.preventDefault(); void load(); }}>
       <label>Editorial token<input type="password" value={token} onChange={event => setToken(event.target.value)} placeholder="Stored only for this browser session"/></label>
       <button className="button small" type="submit" disabled={busy || !token.trim()}>{busy ? "Working…" : "Open workspace"}</button>
       <p role="status">{message}</p>
-    </form>
+    </form> : <section className="editorial-access session-active"><strong>Secure editorial session active</strong><p role="status">{message}</p></section>}
     {questions.length > 0 && <>
       <div className="editorial-grid">
         <form className="editorial-form" onSubmit={createDraft}>

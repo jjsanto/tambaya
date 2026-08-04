@@ -10,3 +10,8 @@
 .add-block button { border: 1px solid var(--line); background: white; color: var(--navy); padding: 6px 9px; font-size: 10px; cursor: pointer; }
 .add-block button:hover { border-color: var(--gold); }
 @media (max-width: 620px) { .block-editor { grid-template-columns: 1fr; } .block-editor label { grid-column: 1 !important; } }
+.editorial-server-login { display: grid; grid-template-columns: minmax(260px, 520px) auto; align-items: end; gap: 12px; padding: 24px; margin-bottom: 18px; background: var(--navy); color: white; }
+.editorial-server-login label { display: grid; gap: 6px; font-size: 12px; font-weight: 700; }
+.editorial-server-login input { padding: 12px; border: 1px solid var(--line); background: white; }
+.editorial-server-login p { grid-column: 1 / -1; margin: 0; color: #ffd59b; }
+@media (max-width: 620px) { .editorial-server-login { grid-template-columns: 1fr; } .editorial-server-login p { grid-column: auto; } }
