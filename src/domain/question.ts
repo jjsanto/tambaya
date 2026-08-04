@@ -1,0 +1,65 @@
+export const answerStatuses = ["ANSWERED", "PARTIALLY_ANSWERED", "OPEN"] as const;
+export type AnswerStatus = (typeof answerStatuses)[number];
+
+export const verificationStates = ["PENDING", "VERIFIED", "UNCERTAIN", "CONTRADICTED", "STALE"] as const;
+export type VerificationState = (typeof verificationStates)[number];
+
+export const relationshipTypes = ["RELATED_TO", "LEADS_TO", "DEPENDS_ON", "REFINES", "GENERALIZES", "CHALLENGES", "PRECEDES"] as const;
+export type RelationshipType = (typeof relationshipTypes)[number];
+
+export type TimelineEvent = { year: string; title: string; description: string };
+export type QuestionReference = { title: string; publisher: string; url: string; purpose: "HISTORICAL_CONTEXT" | "STATUS_VERIFICATION" | "ORIGIN" | "TIMELINE" | "BACKGROUND" };
+export type EditorialReview = { provenance: "EDITORIAL" | "PUBLISHER" | "AI_ASSISTED"; reviewedAt: string; answerLeakState: "PASSED" | "PENDING" | "REJECTED" };
+export type StorySection = { id: string; kicker: string; title: string; paragraphs: string[]; review: EditorialReview };
+export type PersonAssociation = { name: string; period: string; association: string };
+export type KeyTerm = { term: string; description: string };
+export type QuestionBranch = { question: string; relationship: RelationshipType };
+
+export type PublicQuestion = {
+  id: string;
+  slug: string;
+  questionText: string;
+  category: string;
+  categorySlug: string;
+  tags: string[];
+  claimedStatus: AnswerStatus;
+  verifiedStatus: AnswerStatus;
+  verificationState: VerificationState;
+  contextSummary: string;
+  origins: string;
+  evolution: string;
+  whyAsked: string;
+  whyItMatters: string;
+  whereItAppears: string;
+  timeline: TimelineEvent[];
+  references: QuestionReference[];
+  storySections: StorySection[];
+  people: PersonAssociation[];
+  keyTerms: KeyTerm[];
+  branches: QuestionBranch[];
+  editorialReview: Record<"SUMMARY" | "ORIGINS" | "EVOLUTION" | "WHY_ASKED" | "WHY_IT_MATTERS" | "WHERE_IT_APPEARS", EditorialReview>;
+  featured?: boolean;
+};
+
+export type QuestionRelationship = { sourceSlug: string; targetSlug: string; type: RelationshipType };
+
+export function isAnswerStatus(value: unknown): value is AnswerStatus {
+  return typeof value === "string" && answerStatuses.includes(value as AnswerStatus);
+}
+
+export function isRelationshipType(value: unknown): value is RelationshipType {
+  return typeof value === "string" && relationshipTypes.includes(value as RelationshipType);
+}
+
+export function slugifyQuestion(value: string): string {
+  return value.toLowerCase().normalize("NFKD").replace(/[\u0300-\u036f]/g, "").replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
+}
+
+const forbiddenPublicKeys = /^(answer|answer_body|solution|accepted_answer)$/i;
+export function sanitizePublicRecord<T extends Record<string, unknown>>(record: T): Omit<T, "answer"> {
+  return Object.fromEntries(Object.entries(record).filter(([key]) => !forbiddenPublicKeys.test(key))) as Omit<T, "answer">;
+}
+
+export function hasLikelyAnswerLeak(text: string): boolean {
+  return /\b(the (?:definitive )?answer is|this proves that|therefore,? the answer|it is conclusively)\b/i.test(text);
+}

@@ -1,0 +1,5 @@
+import type { Metadata } from "next";
+import { QuestionGrid } from "@/components/question-grid";
+import { getQuestionRepository } from "@/data/question-service";
+export const metadata: Metadata = { title: "Search" };
+export default async function SearchPage({ searchParams }: { searchParams: Promise<{ q?: string }> }) { const { q = "" } = await searchParams; const results = await (await getQuestionRepository()).search(q); return <div className="page shell"><header className="page-intro compact"><span className="eyebrow">Search the map</span><h1>Find a question</h1><form className="large-search"><input autoFocus name="q" defaultValue={q} placeholder="Try “consciousness” or “language”…"/><button className="button">Search →</button></form>{q && <p>{results.length} result{results.length === 1 ? "" : "s"} for “{q}”</p>}</header><QuestionGrid questions={results}/>{q && !results.length && <div className="empty"><h2>No question found—yet.</h2><p>Try a broader idea. Sometimes the path starts with different words.</p></div>}</div>; }

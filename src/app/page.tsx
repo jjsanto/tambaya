@@ -1,0 +1,20 @@
+import Link from "next/link";
+import { MeerkatExplorer, NetworkMark } from "@/components/brand";
+import { QuestionGrid } from "@/components/question-grid";
+import { StatusBadge } from "@/components/status-badge";
+import { getQuestionRepository } from "@/data/question-service";
+export const dynamic = "force-dynamic";
+
+export default async function Home() {
+  const repository = await getQuestionRepository();
+  const [featured, categories] = await Promise.all([repository.featured(6), repository.categories()]);
+  return <>
+    <section className="hero"><div className="shell hero-grid"><div className="hero-copy"><span className="eyebrow">A living map of human inquiry</span><h1>The world is full of answers.<br/><em>Tambaya is for the questions.</em></h1><p>Discover the stories behind enduring questions, follow the connections between them, and find better things to ask.</p><div className="actions"><Link className="button" href="/explore">Start exploring <span>→</span></Link><Link className="button ghost" href="/editorial">Publish a question</Link></div><p className="promise"><span>✦</span> No answers. Just questions worth asking.</p></div><div className="hero-art"><MeerkatExplorer/><aside><strong>Can curiosity be mapped?</strong><small>Explore the connection</small></aside></div></div></section>
+    <section id="about" className="manifesto section"><div className="shell split"><div><span className="eyebrow">A different kind of place</span><h2>A question is more than a gap waiting to be filled.</h2></div><div><p>Every worthwhile question has a history. It has changed language, crossed disciplines, and opened paths to other questions.</p><p>Tambaya preserves that journey—without collapsing it into an answer.</p></div></div></section>
+    <section className="section warm"><div className="shell"><div className="section-head"><div><span className="eyebrow">Three states of inquiry</span><h2>Where does the question stand?</h2></div><p>Publishers classify. Tambaya verifies. Knowledge can move.</p></div><div className="status-grid"><article><StatusBadge status="ANSWERED"/><h3>Established beyond Tambaya</h3><p>Substantial answers exist elsewhere. Here, we explore how the question was asked.</p></article><article><StatusBadge status="PARTIALLY_ANSWERED"/><h3>Still taking shape</h3><p>Meaningful parts remain unresolved as the question continues to evolve.</p></article><article><StatusBadge status="OPEN"/><h3>At the frontier</h3><p>No sufficiently established answer is known. The question stays genuinely open.</p></article></div></div></section>
+    <section className="section"><div className="shell"><div className="section-head"><div><span className="eyebrow">Begin somewhere</span><h2>Featured questions</h2></div><Link className="text-link" href="/explore">Explore all questions →</Link></div><QuestionGrid questions={featured}/></div></section>
+    <section className="section category-band"><div className="shell"><span className="eyebrow">Follow your curiosity</span><h2>Browse by field</h2><div className="category-list">{categories.map((c, i) => <Link href={`/categories/${c.slug}`} key={c.slug}><span>{String(i + 1).padStart(2, "0")}</span><strong>{c.name}</strong><small>{c.count} questions</small><b>↗</b></Link>)}</div></div></section>
+    <section className="section how"><div className="shell"><div className="section-head"><div><span className="eyebrow">How Tambaya works</span><h2>One question becomes a constellation.</h2></div></div><div className="steps">{[["01","Publish","Begin with a question worth preserving."],["02","Verify","Classify its status with transparent care."],["03","Connect","Trace the questions it depends on and inspires."],["04","Discover","Leave with several better questions."]].map(([n,t,d]) => <article key={n}><NetworkMark size={32}/><span>{n}</span><h3>{t}</h3><p>{d}</p></article>)}</div></div></section>
+    <section className="closing"><div className="shell"><NetworkMark size={62}/><h2>What will you ask next?</h2><p>No answers. Just questions worth asking.</p><Link className="button light" href="/explore">Enter Tambaya →</Link></div></section>
+  </>;
+}
