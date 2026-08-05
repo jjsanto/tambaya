@@ -5,7 +5,13 @@ import { getQuestionRepository } from "@/data/question-service";
 export const dynamic = "force-dynamic";
 
 const illustrations: Record<string,string> = {
+  "arts-humanities": "/images/tambaya-category-arts-humanities.png",
+  economics: "/images/tambaya-category-economics.png",
+  "environment-earth": "/images/tambaya-category-environment-earth.png",
+  "health-medicine": "/images/tambaya-category-health-medicine.png",
   history: "/images/tambaya-category-history.png",
+  "language-communication": "/images/tambaya-category-language-communication.png",
+  "law-governance": "/images/tambaya-category-law-governance.png",
   mathematics: "/images/tambaya-category-mathematics.png",
   philosophy: "/images/tambaya-category-philosophy.png",
   "psychology-mind": "/images/tambaya-category-psychology-mind.png",
