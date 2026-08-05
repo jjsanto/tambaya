@@ -1,5 +1,9 @@
 /* The source illustration has deliberate negative space on its left half.
    Size by height and crop that empty canvas so the meerkat remains the hero. */
+.hero {
+  background: #fffdf8;
+}
+
 .hero-art {
   height: 630px;
   overflow: visible;
