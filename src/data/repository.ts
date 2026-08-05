@@ -1,16 +1,19 @@
 import type { AnswerStatus, PublicQuestion, QuestionRelationship, VerificationState } from "@/domain/question";
 
-export type QuestionFilters = { status?: string; category?: string; page?: number; pageSize?: number };
+export type QuestionSort = "newest" | "recently-verified" | "most-connected";
+export type QuestionFilters = { status?: string; category?: string; tag?: string; sort?: QuestionSort; page?: number; pageSize?: number };
 export type CategorySummary = { slug: string; name: string; count: number };
+export type TagSummary = { slug: string; name: string; count: number };
 export type RelatedQuestion = { edge: QuestionRelationship; question: PublicQuestion };
 
 export interface QuestionRepository {
   list(filters?: QuestionFilters): Promise<PublicQuestion[]>;
-  count(filters?: Pick<QuestionFilters, "status" | "category">): Promise<number>;
+  count(filters?: Pick<QuestionFilters, "status" | "category" | "tag">): Promise<number>;
   featured(limit?: number): Promise<PublicQuestion[]>;
   findBySlug(slug: string): Promise<PublicQuestion | null>;
   search(query: string): Promise<PublicQuestion[]>;
   categories(): Promise<CategorySummary[]>;
+  tags(): Promise<TagSummary[]>;
   related(slug: string): Promise<RelatedQuestion[]>;
   createDraft(input: { questionText: string; claimedStatus: AnswerStatus; category: string; contextSummary: string }): Promise<{ id: string; slug: string; publicationState: "DRAFT" }>;
 }
