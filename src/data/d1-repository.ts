@@ -12,9 +12,32 @@ type BlockRow = { section_id: string; block_type: StoryBlock["type"]; data_json:
 type PersonRow = { name: string; period: string; association: string };
 type TermRow = { term: string; description: string };
 type BranchRow = { question_text: string; relationship_type: RelationshipType };
+type SummaryRow = { question_id: string; body: string };
+type QuestionTagRow = { question_id: string; name: string };
 
 export class D1QuestionRepository implements QuestionRepository {
   constructor(private readonly db: D1DatabaseLike) {}
+
+  private async summarize(rows: QuestionRow[]): Promise<PublicQuestion[]> {
+    if (!rows.length) return [];
+    const placeholders = rows.map(() => "?").join(",");
+    const ids = rows.map(row => row.id);
+    const [summariesResult, tagsResult] = await Promise.all([
+      this.db.prepare(`SELECT question_id,body FROM question_content_sections WHERE question_id IN (${placeholders}) AND section_type='SUMMARY' AND publication_state='PUBLISHED'`).bind(...ids).all<SummaryRow>(),
+      this.db.prepare(`SELECT qt.question_id,t.name FROM question_tags qt JOIN tags t ON t.id=qt.tag_id WHERE qt.question_id IN (${placeholders}) ORDER BY t.name`).bind(...ids).all<QuestionTagRow>(),
+    ]);
+    const summaries = new Map((summariesResult.results ?? []).map(item => [item.question_id, item.body]));
+    const tags = new Map<string, string[]>();
+    for (const item of tagsResult.results ?? []) tags.set(item.question_id, [...(tags.get(item.question_id) ?? []), item.name]);
+    const pendingReview: EditorialReview = { provenance: "EDITORIAL", reviewedAt: "", answerLeakState: "PENDING" };
+    return rows.map(row => ({
+      id: row.id, slug: row.slug, questionText: row.question_text, category: row.category_name, categorySlug: row.category_slug,
+      tags: tags.get(row.id) ?? [], claimedStatus: row.claimed_status, verifiedStatus: row.verified_status,
+      verificationState: row.verification_state, featured: Boolean(row.featured), contextSummary: summaries.get(row.id) ?? "",
+      origins: "", evolution: "", whyAsked: "", whyItMatters: "", whereItAppears: "", timeline: [], references: [], storySections: [], people: [], keyTerms: [], branches: [],
+      editorialReview: { SUMMARY: pendingReview, ORIGINS: pendingReview, EVOLUTION: pendingReview, WHY_ASKED: pendingReview, WHY_IT_MATTERS: pendingReview, WHERE_IT_APPEARS: pendingReview },
+    }));
+  }
 
   private async hydrate(row: QuestionRow): Promise<PublicQuestion> {
     const [sectionsResult, timelineResult, refsResult, tagsResult, storyResult, paragraphResult, blockResult, peopleResult, termsResult, branchesResult] = await Promise.all([
@@ -52,10 +75,10 @@ export class D1QuestionRepository implements QuestionRepository {
     const sql = `SELECT q.id,q.slug,q.question_text,COALESCE(c.name,q.category_name) category_name,COALESCE(c.slug,'uncategorised') category_slug,q.claimed_status,q.verified_status,q.verification_state,COALESCE(q.featured,0) featured FROM questions q LEFT JOIN categories c ON c.id=q.category_id WHERE q.publication_state='PUBLISHED' ${where} ORDER BY q.featured DESC,q.published_at DESC${limit ? ` LIMIT ${limit}` : ""}`;
     return (await this.db.prepare(sql).bind(...bindings).all<QuestionRow>()).results ?? [];
   }
-  async list(filters: QuestionFilters = {}) { const clauses: string[] = []; const values: unknown[] = []; if (filters.status) { clauses.push("q.verified_status=?"); values.push(filters.status); } if (filters.category) { clauses.push("c.slug=?"); values.push(filters.category); } const rows = await this.rows(clauses.length ? `AND ${clauses.join(" AND ")}` : "", values); return Promise.all(rows.map(row => this.hydrate(row))); }
-  async featured(limit = 6) { const rows = await this.rows("AND q.featured=1", [], limit); return Promise.all(rows.map(row => this.hydrate(row))); }
+  async list(filters: QuestionFilters = {}) { const clauses: string[] = []; const values: unknown[] = []; if (filters.status) { clauses.push("q.verified_status=?"); values.push(filters.status); } if (filters.category) { clauses.push("c.slug=?"); values.push(filters.category); } const rows = await this.rows(clauses.length ? `AND ${clauses.join(" AND ")}` : "", values); return this.summarize(rows); }
+  async featured(limit = 6) { const rows = await this.rows("AND q.featured=1", [], limit); return this.summarize(rows); }
   async findBySlug(slug: string) { const rows = await this.rows("AND q.slug=?", [slug], 1); return rows[0] ? this.hydrate(rows[0]) : null; }
-  async search(query: string) { if (!query.trim()) return this.list(); const ids = (await this.db.prepare("SELECT question_id FROM question_search WHERE question_search MATCH ? ORDER BY rank LIMIT 50").bind(query.replace(/[\"']/g, " ")).all<{question_id:string}>()).results ?? []; if (!ids.length) return []; const placeholders = ids.map(() => "?").join(","); const rows = await this.rows(`AND q.id IN (${placeholders})`, ids.map(item => item.question_id)); return Promise.all(rows.map(row => this.hydrate(row))); }
+  async search(query: string) { if (!query.trim()) return this.list(); const ids = (await this.db.prepare("SELECT question_id FROM question_search WHERE question_search MATCH ? ORDER BY rank LIMIT 50").bind(query.replace(/[\"']/g, " ")).all<{question_id:string}>()).results ?? []; if (!ids.length) return []; const placeholders = ids.map(() => "?").join(","); const rows = await this.rows(`AND q.id IN (${placeholders})`, ids.map(item => item.question_id)); return this.summarize(rows); }
   async categories(): Promise<CategorySummary[]> { return (await this.db.prepare("SELECT c.slug,c.name,COUNT(q.id) count FROM categories c LEFT JOIN questions q ON q.category_id=c.id AND q.publication_state='PUBLISHED' GROUP BY c.id ORDER BY c.name").all<CategorySummary>()).results ?? []; }
   async related(slug: string) { const source = await this.findBySlug(slug); if (!source) return []; const edges = (await this.db.prepare("SELECT source_slug AS sourceSlug,target_slug AS targetSlug,relationship_type AS type FROM question_relationships WHERE source_question_id=? OR target_question_id=?").bind(source.id,source.id).all<{sourceSlug:string;targetSlug:string;type:import("@/domain/question").RelationshipType}>()).results ?? []; return Promise.all(edges.map(async edge => ({ edge, question: (await this.findBySlug(edge.sourceSlug === slug ? edge.targetSlug : edge.sourceSlug))! }))); }
   async createDraft(input: { questionText: string; claimedStatus: AnswerStatus; category: string; contextSummary: string }) { const id = crypto.randomUUID(); const slug = slugifyQuestion(input.questionText); await this.db.prepare("INSERT INTO questions (id,question_text,slug,publication_state,claimed_status,verification_state,category_name,context_summary,public_json) VALUES (?,?,?,'DRAFT',?,'PENDING',?,?,'{}')").bind(id,input.questionText,slug,input.claimedStatus,input.category,input.contextSummary).run(); await this.db.prepare("INSERT INTO question_content_sections (id,question_id,section_type,body,provenance,publication_state,answer_leak_state,position) VALUES (?,?, 'SUMMARY',?,'PUBLISHER','DRAFT','PENDING',0)").bind(crypto.randomUUID(),id,input.contextSummary).run(); return { id, slug, publicationState: "DRAFT" as const }; }
