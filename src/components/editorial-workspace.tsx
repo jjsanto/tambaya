@@ -129,8 +129,9 @@ export function EditorialWorkspace({ connected = false }: { connected?: boolean 
     if (!editing || !window.confirm(`Replace the live Story for “${editing.question_text}” with this reviewed revision?`)) return;
     setBusy(true);
     try {
+      await api(`/api/editorial/questions/${editing.id}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "save_revision", sections: editorSections }) });
       await api(`/api/editorial/questions/${editing.id}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "publish_revision" }) });
-      setMessage("The reviewed revision is now live; the previous Story remains in revision history."); setEditing(null); await load();
+      setMessage("The sections shown in the editor were saved and published. The previous Story remains in revision history."); setEditing(null); setProposal(null); await load();
     } catch (error) { setMessage(error instanceof Error ? error.message : "Unable to publish the revision."); }
     finally { setBusy(false); }
   }
