@@ -8,3 +8,4 @@ coverage
 !.env.example
 .DS_Store
 scripts/generated-seed.sql
+scripts/generated-expansion-seed.sql

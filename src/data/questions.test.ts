@@ -3,6 +3,8 @@ import { hasLikelyAnswerLeak } from "@/domain/question";
 import { getQuestion, getRelated, questions, searchQuestions } from "./questions";
 describe("question fixtures and retrieval", () => {
   it("contains a representative Phase 1 corpus", () => { expect(questions.length).toBeGreaterThanOrEqual(20); expect(new Set(questions.map(q => q.verifiedStatus))).toEqual(new Set(["OPEN","PARTIALLY_ANSWERED","ANSWERED"])); });
+  it("meets the expanded Phase 1 corpus target", () => { expect(questions).toHaveLength(100); expect(new Set(questions.map(q => q.categorySlug)).size).toBe(13); });
+  it("gives every expansion record an encyclopedic baseline", () => { for (const question of questions.slice(28)) { expect(question.contextSummary.length).toBeGreaterThan(150); expect(question.storySections).toHaveLength(5); expect(question.timeline).toHaveLength(3); expect(question.references.length).toBeGreaterThanOrEqual(2); expect(question.keyTerms).toHaveLength(3); expect(question.branches).toHaveLength(3); expect(question.storySections.every(section => section.paragraphs[0].length >= 180)).toBe(true); } });
   it("retrieves a question by slug", () => { expect(getQuestion("what-is-consciousness")?.questionText).toBe("What is consciousness?"); });
   it("searches question text, category, tags and context", () => { expect(searchQuestions("consciousness").length).toBeGreaterThan(0); expect(searchQuestions("astronomy").length).toBeGreaterThan(0); });
   it("assembles typed related questions", () => { const related = getRelated("what-is-consciousness"); expect(related.length).toBeGreaterThan(0); expect(related.every(item => item.question && item.edge.type)).toBe(true); });

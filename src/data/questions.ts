@@ -1,5 +1,6 @@
 import type { PublicQuestion, QuestionRelationship } from "@/domain/question";
 import { encyclopedicLayers, extendedThreads } from "./encyclopedic";
+import { expandedQuestions, expandedRelationships } from "./expanded-questions";
 
 type Seed = [string, string, string, PublicQuestion["claimedStatus"], string[], boolean?];
 const seeds: Seed[] = [
@@ -127,7 +128,7 @@ const richStories: Record<string, RichStory> = {
 const reviewed = { provenance: "EDITORIAL" as const, reviewedAt: "2026-08-04", answerLeakState: "PASSED" as const };
 const editorialReview: PublicQuestion["editorialReview"] = { SUMMARY: reviewed, ORIGINS: reviewed, EVOLUTION: reviewed, WHY_ASKED: reviewed, WHY_IT_MATTERS: reviewed, WHERE_IT_APPEARS: reviewed };
 
-export const questions: PublicQuestion[] = seeds.map(([questionText, category, categorySlug, status, tags, featured], index) => {
+const originalQuestions: PublicQuestion[] = seeds.map(([questionText, category, categorySlug, status, tags, featured], index) => {
   const slug = questionText.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
   const fallback: RichStory = {
     contextSummary: `A question that has travelled through ${category.toLowerCase()}, gathering new meanings as the tools and language of inquiry changed.`,
@@ -161,7 +162,9 @@ export const questions: PublicQuestion[] = seeds.map(([questionText, category, c
   };
 });
 
-export const relationships: QuestionRelationship[] = [
+export const questions: PublicQuestion[] = [...originalQuestions, ...expandedQuestions];
+
+export const relationships: QuestionRelationship[] = [...[
   ["what-is-consciousness", "can-thinking-exist-without-language", "LEADS_TO"],
   ["what-is-consciousness", "how-does-attention-shape-experience", "RELATED_TO"],
   ["why-do-we-dream", "what-makes-a-memory-reliable", "RELATED_TO"],
@@ -176,7 +179,7 @@ export const relationships: QuestionRelationship[] = [
   ["is-time-fundamental", "why-is-there-something-rather-than-nothing", "RELATED_TO"],
   ["what-makes-something-beautiful", "what-makes-an-explanation-satisfying", "RELATED_TO"],
   ["how-do-new-technologies-change-old-questions", "can-machines-understand", "LEADS_TO"]
-].map(([sourceSlug, targetSlug, type]) => ({ sourceSlug, targetSlug, type })) as QuestionRelationship[];
+].map(([sourceSlug, targetSlug, type]) => ({ sourceSlug, targetSlug, type })) as QuestionRelationship[], ...expandedRelationships];
 
 export const categories = [...new Map(questions.map(q => [q.categorySlug, q.category])).entries()]
   .map(([slug, name]) => ({ slug, name, count: questions.filter(q => q.categorySlug === slug).length }));

@@ -13,7 +13,7 @@ npm install
 npm run dev
 ```
 
-Open `http://localhost:3000`. The local Next.js experience uses the same 28-question editorial source that generates the normalized D1 seed, so no Cloudflare account is required to evaluate the complete public UI. Eight flagship questions contain individually authored, reviewed Story sections; the remaining questions provide layout-scale development content.
+Open `http://localhost:3000`. The local Next.js experience uses the same 100-question editorial source that generates the normalized D1 seed, so no Cloudflare account is required to evaluate the complete public UI. The catalogue spans 13 categories and includes rich, reviewed Story sections, timelines, relationships, and authoritative references.
 
 Run verification:
 
