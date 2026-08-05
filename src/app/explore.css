@@ -1,0 +1,45 @@
+.explore-hero {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(390px, 540px);
+  align-items: center;
+  gap: 38px;
+  min-height: 390px;
+  margin: -36px 0 48px;
+}
+
+.explore-hero .page-intro {
+  margin: 0;
+}
+
+.explore-meerkat {
+  display: block;
+  width: 112%;
+  height: auto;
+  margin-left: -9%;
+  object-fit: contain;
+}
+
+@media (max-width: 900px) {
+  .explore-hero {
+    grid-template-columns: 1fr;
+    gap: 12px;
+    margin-top: -25px;
+  }
+
+  .explore-meerkat {
+    width: min(680px, 108%);
+    margin: -35px -4% -20px auto;
+  }
+}
+
+@media (max-width: 620px) {
+  .explore-hero {
+    margin-top: -42px;
+    margin-bottom: 32px;
+  }
+
+  .explore-meerkat {
+    width: 116%;
+    margin: -22px -8% -12px;
+  }
+}

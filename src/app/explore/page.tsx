@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import Image from "next/image";
 import Link from "next/link";
 import { QuestionGrid } from "@/components/question-grid";
 import { getQuestionRepository } from "@/data/question-service";
@@ -10,5 +11,5 @@ async function Explore({ searchParams }: { searchParams: Promise<{ status?: stri
   const filter = await searchParams;
   const repository = await getQuestionRepository();
   const [results, categories] = await Promise.all([repository.list(filter), repository.categories()]);
-  return <div className="page shell"><header className="page-intro"><span className="eyebrow">Explore Tambaya</span><h1>Questions have paths.<br/><em>Choose one to follow.</em></h1><p>Browse a curated field of questions, their histories, and the connections between them.</p></header><div className="filter-bar"><div><Link href="/explore">All</Link><Link href="/explore?status=OPEN">Open</Link><Link href="/explore?status=PARTIALLY_ANSWERED">Partially answered</Link><Link href="/explore?status=ANSWERED">Answered</Link></div><span>{results.length} questions</span></div><div className="explore-layout"><aside><strong>Fields of inquiry</strong>{categories.map(c => <Link href={`/explore?category=${c.slug}`} key={c.slug}>{c.name}<span>{c.count}</span></Link>)}</aside><QuestionGrid questions={results}/></div></div>;
+  return <div className="page shell"><section className="explore-hero"><header className="page-intro"><span className="eyebrow">Explore Tambaya</span><h1>Questions have paths.<br/><em>Choose one to follow.</em></h1><p>Browse a curated field of questions, their histories, and the connections between them.</p></header><Image className="explore-meerkat" src="/images/tambaya-meerkat-explore-path.png" width={1536} height={1024} priority sizes="(max-width: 900px) 92vw, 48vw" alt="A curious meerkat follows a winding path of connected questions"/></section><div className="filter-bar"><div><Link href="/explore">All</Link><Link href="/explore?status=OPEN">Open</Link><Link href="/explore?status=PARTIALLY_ANSWERED">Partially answered</Link><Link href="/explore?status=ANSWERED">Answered</Link></div><span>{results.length} questions</span></div><div className="explore-layout"><aside><strong>Fields of inquiry</strong>{categories.map(c => <Link href={`/explore?category=${c.slug}`} key={c.slug}>{c.name}<span>{c.count}</span></Link>)}</aside><QuestionGrid questions={results}/></div></div>;
 }
