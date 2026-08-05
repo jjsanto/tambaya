@@ -1,11 +1,12 @@
 import type { AnswerStatus, PublicQuestion, QuestionRelationship, VerificationState } from "@/domain/question";
 
-export type QuestionFilters = { status?: string; category?: string };
+export type QuestionFilters = { status?: string; category?: string; page?: number; pageSize?: number };
 export type CategorySummary = { slug: string; name: string; count: number };
 export type RelatedQuestion = { edge: QuestionRelationship; question: PublicQuestion };
 
 export interface QuestionRepository {
   list(filters?: QuestionFilters): Promise<PublicQuestion[]>;
+  count(filters?: Pick<QuestionFilters, "status" | "category">): Promise<number>;
   featured(limit?: number): Promise<PublicQuestion[]>;
   findBySlug(slug: string): Promise<PublicQuestion | null>;
   search(query: string): Promise<PublicQuestion[]>;
