@@ -2,6 +2,7 @@
 
 import { FormEvent, useCallback, useEffect, useState } from "react";
 import type { StoryBlock } from "@/domain/question";
+import type { EnrichmentProposal } from "@/domain/enrichment";
 
 type EditorialQuestion = { id: string; slug: string; question_text: string; publication_state: "DRAFT" | "PUBLISHED" | "ARCHIVED"; claimed_status: string; verified_status: string | null; verification_state: string; category_name: string; context_summary: string; updated_at: string; section_count: number };
 type StoryEditorSection = { key: string; kicker: string; title: string; paragraphs: string[]; blocks?: StoryBlock[] };
@@ -27,6 +28,7 @@ export function EditorialWorkspace({ connected = false }: { connected?: boolean 
   const [busy, setBusy] = useState(false);
   const [editing, setEditing] = useState<EditorialDetail | null>(null);
   const [editorSections, setEditorSections] = useState<StoryEditorSection[]>([]);
+  const [proposal, setProposal] = useState<EnrichmentProposal | null>(null);
 
   useEffect(() => {
     const timer = window.setTimeout(() => setToken(sessionStorage.getItem("tambaya-editorial-token") ?? ""), 0);
@@ -35,7 +37,7 @@ export function EditorialWorkspace({ connected = false }: { connected?: boolean 
 
   const api = useCallback(async (url: string, init?: RequestInit) => {
     const response = await fetch(url, { ...init, cache: "no-store", credentials: "same-origin", headers: { ...init?.headers, ...(token.trim() ? { Authorization: `Bearer ${token.trim()}` } : {}) } });
-    const result = await response.json() as { error?: string; questions?: EditorialQuestion[]; question?: EditorialDetail };
+    const result = await response.json() as { error?: string; questions?: EditorialQuestion[]; question?: EditorialDetail; proposal?: EnrichmentProposal };
     if (!response.ok) throw new Error(result.error ?? "The editorial request failed.");
     return result;
   }, [token]);
@@ -80,7 +82,7 @@ export function EditorialWorkspace({ connected = false }: { connected?: boolean 
       const result = await api(`/api/editorial/questions/${question.id}`); const detail = result.question;
       if (!detail) throw new Error("The Story could not be loaded.");
       const defaults = ["Origins", "Evolution", "Why it matters"].map((title, index) => ({ key: `section-${index + 1}`, kicker: "Context", title, paragraphs: [""] }));
-      setEditing(detail); setEditorSections(detail.sections.length ? detail.sections : defaults); setMessage("Story editor opened.");
+      setEditing(detail); setEditorSections(detail.sections.length ? detail.sections : defaults); setProposal(null); setMessage("Story editor opened.");
     } catch (error) { setMessage(error instanceof Error ? error.message : "Unable to open the Story editor."); }
     finally { setBusy(false); }
   }
@@ -101,6 +103,18 @@ export function EditorialWorkspace({ connected = false }: { connected?: boolean 
 
   function replaceBlock(sectionIndex: number, blockIndex: number, block: StoryBlock) { setEditorSections(current => current.map((section,index) => index === sectionIndex ? { ...section, blocks: (section.blocks ?? []).map((item,position) => position === blockIndex ? block : item) } : section)); }
   function removeBlock(sectionIndex: number, blockIndex: number) { setEditorSections(current => current.map((section,index) => index === sectionIndex ? { ...section, blocks: (section.blocks ?? []).filter((_,position) => position !== blockIndex) } : section)); }
+
+  async function enrichStory() {
+    if (!editing || !window.confirm("Generate a private AI proposal? This will replace the sections currently shown in the form, but nothing is saved or published yet.")) return;
+    setBusy(true); setMessage("Generating an encyclopedic proposal and running safety checks…");
+    try {
+      const result = await api(`/api/editorial/questions/${editing.id}/enrich`, { method: "POST" });
+      if (!result.proposal) throw new Error("The enrichment service returned no proposal.");
+      setProposal(result.proposal); setEditorSections(result.proposal.sections);
+      setMessage("Proposal ready for editorial review. Verify its claims and sources, edit it, then save the private revision.");
+    } catch (error) { setMessage(error instanceof Error ? error.message : "Unable to enrich this Story."); }
+    finally { setBusy(false); }
+  }
 
   async function saveStory(event: FormEvent<HTMLFormElement>) {
     event.preventDefault(); if (!editing) return; setBusy(true);
@@ -147,6 +161,8 @@ export function EditorialWorkspace({ connected = false }: { connected?: boolean 
         </form>
         <section className="editorial-queue"><span className="eyebrow">Review queue</span><h2>Questions in D1</h2>
           {editing && <form className="story-editor" onSubmit={saveStory}><div className="story-editor-head"><div><small>Private Story revision</small><h3>{editing.question_text}</h3></div><button type="button" className="text-link" onClick={() => setEditing(null)}>Close</button></div>
+            <section className="enrichment-panel"><div><span className="eyebrow">AI-assisted draft</span><h4>Build an encyclopedic proposal</h4><p>Generates contextual sections, source leads, and a preliminary status assessment. Nothing is saved until you approve it.</p></div><button type="button" className="button small" disabled={busy} onClick={() => void enrichStory()}>{busy ? "Working…" : "Enrich question"}</button></section>
+            {proposal && <aside className="enrichment-review"><div><strong>Status suggestion: {labels[proposal.suggestedStatus]}</strong><span>{proposal.statusConfidence.toLowerCase()} confidence</span></div><p>{proposal.statusRationale}</p>{proposal.sourceLeads.length > 0 && <details><summary>{proposal.sourceLeads.length} source lead{proposal.sourceLeads.length === 1 ? "" : "s"} to verify</summary><ul>{proposal.sourceLeads.map(source => <li key={source.url}><a href={source.url} target="_blank" rel="noreferrer">{source.title}</a> — {source.publisher} ({source.purpose})</li>)}</ul></details>}<small>{proposal.warnings.join(" ")}</small></aside>}
             {editorSections.map((section, index) => <fieldset key={`${section.key}-${index}`}><legend>Section {index + 1}</legend><label>Kicker<input required value={section.kicker} onChange={event => updateSection(index,"kicker",event.target.value)}/></label><label>Title<input required minLength={4} value={section.title} onChange={event => updateSection(index,"title",event.target.value)}/></label><label>Core paragraph<textarea required minLength={80} rows={6} value={section.paragraphs[0] ?? ""} onChange={event => updateSection(index,"paragraph",event.target.value)} placeholder="At least 80 characters of historical or contextual material that does not resolve the question."/></label><div className="block-editor-list">{(section.blocks ?? []).map((block, blockIndex) => block.type === "PARAGRAPH" && blockIndex === 0 ? null : <RichBlockFields key={blockIndex} block={block} onChange={value => replaceBlock(index,blockIndex,value)} onRemove={() => removeBlock(index,blockIndex)}/>)}</div><div className="add-block"><span>Enrich section:</span>{(["HEADING","IMAGE","TABLE","LIST","QUOTE","CALLOUT"] as StoryBlock["type"][]).map(type => <button type="button" key={type} onClick={() => addBlock(index,type)}>+ {type.toLowerCase()}</button>)}</div></fieldset>)}
             <div className="story-editor-controls"><button type="button" className="button ghost small" onClick={() => setEditorSections(current => [...current,{ key:`section-${current.length + 1}`,kicker:"Context",title:"",paragraphs:[""] }])}>Add section</button><span>{editing.publication_state === "PUBLISHED" && <button className="button ghost small" type="button" disabled={busy} onClick={() => void discardRevision()}>Discard</button>}<button className="button small" disabled={busy}>Save revision</button>{editing.publication_state === "PUBLISHED" && editing.hasPendingRevision && <button className="button small publish-revision" type="button" disabled={busy} onClick={() => void publishRevision()}>Publish revision</button>}</span></div>{editing.revisions.length > 0 && <small>{editing.revisions.length} recent revision event{editing.revisions.length === 1 ? "" : "s"} retained.</small>}
           </form>}

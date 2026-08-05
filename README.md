@@ -49,6 +49,8 @@ The configuration follows Cloudflare’s current Workers + OpenNext convention: 
 
 `/editorial` is a token-protected D1 workspace. An editor can create private drafts and build Stories from validated content blocks: paragraphs, headings, images with accessible metadata, tables, lists, quotations, and editorial callouts. Blocks are responsive, answer-leak checked, and stored as structured D1 records rather than arbitrary HTML. Published Stories are reviewed through isolated working copies: editors can save, discard, or atomically publish a revision without modifying live content mid-review, and the replaced Story is retained in the audit snapshot. Publishing requires an answer-free context summary of at least 150 characters and at least three reviewed Story sections. The browser keeps the supplied token in session storage only.
 
+The Story editor also provides a review-first **Enrich question** action backed by the Cloudflare Workers AI binding. It proposes five to eight encyclopedic sections, contextual rich blocks, source leads, and an answer-status assessment. Generated output is schema-validated and answer-leak checked before it reaches the form; it is never saved or published automatically. Because source leads and factual claims are AI-assisted, an editor must verify them before saving the private revision.
+
 The underlying API accepts `Authorization: Bearer <EDITORIAL_TOKEN>`: `GET` and `POST` on `/api/editorial/questions` list records and create drafts; `GET /api/editorial/questions/:id` loads normalized Story content and recent revision events; and `PATCH` saves Story revisions or performs controlled publication.
 
 ## Repository map
