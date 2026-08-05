@@ -20,15 +20,20 @@ export class D1QuestionRepository implements QuestionRepository {
 
   private async summarize(rows: QuestionRow[]): Promise<PublicQuestion[]> {
     if (!rows.length) return [];
-    const placeholders = rows.map(() => "?").join(",");
     const ids = rows.map(row => row.id);
-    const [summariesResult, tagsResult] = await Promise.all([
-      this.db.prepare(`SELECT question_id,body FROM question_content_sections WHERE question_id IN (${placeholders}) AND section_type='SUMMARY' AND publication_state='PUBLISHED'`).bind(...ids).all<SummaryRow>(),
-      this.db.prepare(`SELECT qt.question_id,t.name FROM question_tags qt JOIN tags t ON t.id=qt.tag_id WHERE qt.question_id IN (${placeholders}) ORDER BY t.name`).bind(...ids).all<QuestionTagRow>(),
-    ]);
-    const summaries = new Map((summariesResult.results ?? []).map(item => [item.question_id, item.body]));
+    const chunks = Array.from({ length: Math.ceil(ids.length / 50) }, (_, index) => ids.slice(index * 50, index * 50 + 50));
+    const results = await Promise.all(chunks.flatMap(chunk => {
+      const placeholders = chunk.map(() => "?").join(",");
+      return [
+        this.db.prepare(`SELECT question_id,body FROM question_content_sections WHERE question_id IN (${placeholders}) AND section_type='SUMMARY' AND publication_state='PUBLISHED'`).bind(...chunk).all<SummaryRow>(),
+        this.db.prepare(`SELECT qt.question_id,t.name FROM question_tags qt JOIN tags t ON t.id=qt.tag_id WHERE qt.question_id IN (${placeholders}) ORDER BY t.name`).bind(...chunk).all<QuestionTagRow>(),
+      ];
+    }));
+    const summaryRows = results.filter((_, index) => index % 2 === 0).flatMap(result => (result.results ?? []) as SummaryRow[]);
+    const tagRows = results.filter((_, index) => index % 2 === 1).flatMap(result => (result.results ?? []) as QuestionTagRow[]);
+    const summaries = new Map(summaryRows.map(item => [item.question_id, item.body]));
     const tags = new Map<string, string[]>();
-    for (const item of tagsResult.results ?? []) tags.set(item.question_id, [...(tags.get(item.question_id) ?? []), item.name]);
+    for (const item of tagRows) tags.set(item.question_id, [...(tags.get(item.question_id) ?? []), item.name]);
     const pendingReview: EditorialReview = { provenance: "EDITORIAL", reviewedAt: "", answerLeakState: "PENDING" };
     return rows.map(row => ({
       id: row.id, slug: row.slug, questionText: row.question_text, category: row.category_name, categorySlug: row.category_slug,
