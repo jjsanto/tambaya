@@ -4,7 +4,7 @@ import Link from "next/link";
 import { QuestionGrid } from "@/components/question-grid";
 import { getQuestionRepository } from "@/data/question-service";
 export const metadata: Metadata = { title: "Explore questions" };
-const pageSize = 12;
+const pageSize = 6;
 type ExploreParams = { status?: string; category?: string; page?: string };
 function exploreHref(filter: ExploreParams, page?: number) { const params = new URLSearchParams(); if (filter.status) params.set("status", filter.status); if (filter.category) params.set("category", filter.category); if (page && page > 1) params.set("page", String(page)); const query = params.toString(); return `/explore${query ? `?${query}` : ""}`; }
 export default function ExplorePage({ searchParams }: { searchParams: Promise<ExploreParams> }) {
