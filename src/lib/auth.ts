@@ -3,7 +3,7 @@ import { cookies } from "next/headers";
 import type { CloudflareBindings, D1DatabaseLike } from "@/types/cloudflare";
 
 export const authCookieName = "tambaya_session";
-export const passwordIterations = 210_000;
+export const passwordIterations = 50_000;
 export const sessionMaxAge = 60 * 60 * 24 * 30;
 export type AuthUser = { id: string; username: string };
 
