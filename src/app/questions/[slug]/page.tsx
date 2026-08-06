@@ -7,6 +7,7 @@ import { StoryBlocks } from "@/components/story-blocks";
 import { getQuestionRepository } from "@/data/question-service";
 import { getAuthDatabase, getCurrentUser } from "@/lib/auth";
 import { getCollections, type UserCollection } from "@/lib/library";
+import { QuestionViewTracker } from "@/components/question-view-tracker";
 export const dynamic = "force-dynamic";
 export async function generateMetadata({
   params,
@@ -58,6 +59,7 @@ export default async function QuestionPage({
   }
   return (
     <article className="story-page">
+      {user && <QuestionViewTracker questionId={question.id} />}
       <header className="story-hero">
         <div className="shell">
           <nav className="breadcrumbs">
