@@ -502,7 +502,9 @@ export function SubmissionEditor({
             disabled={busy}
             onClick={() => void persist("submit")}
           >
-            Submit for review
+            {initial?.state === "CHANGES_REQUESTED"
+              ? "Resubmit revised question"
+              : "Submit for review"}
           </button>
         </div>
       </div>
