@@ -29,6 +29,8 @@ export function EditorialWorkspace({ connected = false }: { connected?: boolean 
   const [editing, setEditing] = useState<EditorialDetail | null>(null);
   const [editorSections, setEditorSections] = useState<StoryEditorSection[]>([]);
   const [proposal, setProposal] = useState<EnrichmentProposal | null>(null);
+  const [scope,setScope]=useState<"review"|"archive">("review");
+  const [reviewCount,setReviewCount]=useState(0);
 
   useEffect(() => {
     const timer = window.setTimeout(() => setToken(sessionStorage.getItem("tambaya-editorial-token") ?? ""), 0);
@@ -37,7 +39,7 @@ export function EditorialWorkspace({ connected = false }: { connected?: boolean 
 
   const api = useCallback(async (url: string, init?: RequestInit) => {
     const response = await fetch(url, { ...init, cache: "no-store", credentials: "same-origin", headers: { ...init?.headers, ...(token.trim() ? { Authorization: `Bearer ${token.trim()}` } : {}) } });
-    const result = await response.json() as { error?: string; questions?: EditorialQuestion[]; question?: EditorialDetail; proposal?: EnrichmentProposal };
+    const result = await response.json() as { error?: string; questions?: EditorialQuestion[]; question?: EditorialDetail; proposal?: EnrichmentProposal; reviewCount?:number };
     if (!response.ok) throw new Error(result.error ?? "The editorial request failed.");
     return result;
   }, [token]);
@@ -46,12 +48,13 @@ export function EditorialWorkspace({ connected = false }: { connected?: boolean 
     setBusy(true);
     try {
       sessionStorage.setItem("tambaya-editorial-token", token.trim());
-      const result = await api("/api/editorial/questions");
+      const result = await api(`/api/editorial/questions?scope=${scope}`);
       setQuestions(result.questions ?? []);
-      setMessage("Workspace connected to production D1.");
+      setReviewCount(result.reviewCount??0);
+      setMessage(scope==="review"?`${result.reviewCount??0} publisher submission${result.reviewCount===1?"":"s"} awaiting review.`:"Question archive loaded.");
     } catch (error) { setMessage(error instanceof Error ? error.message : "Unable to load the workspace."); }
     finally { setBusy(false); }
-  }, [api, token]);
+  }, [api, token,scope]);
 
   useEffect(() => { if (!connected) return; const timer = window.setTimeout(() => { void load(); }, 0); return () => window.clearTimeout(timer); }, [connected, load]);
 
@@ -152,6 +155,7 @@ export function EditorialWorkspace({ connected = false }: { connected?: boolean 
       <button className="button small" type="submit" disabled={busy || !token.trim()}>{busy ? "Working…" : "Open workspace"}</button>
       <p role="status">{message}</p>
     </form> : <section className="editorial-access session-active"><strong>Secure editorial session active</strong><p role="status">{message}</p></section>}
+    {connected&&<nav className="editorial-scope"><button type="button" className={scope==="review"?"active":""} onClick={()=>setScope("review")}>Review queue <span>{reviewCount}</span></button><button type="button" className={scope==="archive"?"active":""} onClick={()=>setScope("archive")}>Question archive</button><button type="button" onClick={()=>void load()} disabled={busy}>Refresh</button></nav>}
     {questions.length > 0 && <>
       <div className="editorial-grid">
         <form className="editorial-form" onSubmit={createDraft}>
@@ -162,7 +166,7 @@ export function EditorialWorkspace({ connected = false }: { connected?: boolean 
           <label>Context summary<textarea name="contextSummary" required minLength={150} rows={8} placeholder="At least 150 characters describing the question’s history and importance without resolving it."/></label>
           <button className="button" disabled={busy}>Save private draft →</button>
         </form>
-        <section className="editorial-queue"><span className="eyebrow">Review queue</span><h2>Questions in D1</h2>
+        <section className="editorial-queue"><span className="eyebrow">{scope==="review"?"Publisher submissions":"Published records"}</span><h2>{scope==="review"?"Awaiting editorial review":"Question archive"}</h2>
           {editing && <form className="story-editor" onSubmit={saveStory}><div className="story-editor-head"><div><small>Private Story revision</small><h3>{editing.question_text}</h3></div><button type="button" className="text-link" onClick={() => setEditing(null)}>Close</button></div>
             <section className="enrichment-panel"><div><span className="eyebrow">AI-assisted draft</span><h4>Build an encyclopedic proposal</h4><p>Generates contextual sections, source leads, and a preliminary status assessment. Nothing is saved until you approve it.</p></div><button type="button" className="button small" disabled={busy} onClick={() => void enrichStory()}>{busy ? "Working…" : "Enrich question"}</button></section>
             {proposal && <aside className="enrichment-review"><div><strong>Status suggestion: {labels[proposal.suggestedStatus]}</strong><span>{proposal.statusConfidence.toLowerCase()} confidence</span></div><p>{proposal.statusRationale}</p>{proposal.sourceLeads.length > 0 && <details><summary>{proposal.sourceLeads.length} source lead{proposal.sourceLeads.length === 1 ? "" : "s"} to verify</summary><ul>{proposal.sourceLeads.map(source => <li key={source.url}><a href={source.url} target="_blank" rel="noreferrer">{source.title}</a> — {source.publisher} ({source.purpose})</li>)}</ul></details>}<small>{proposal.warnings.join(" ")}</small></aside>}
@@ -181,6 +185,6 @@ export function EditorialWorkspace({ connected = false }: { connected?: boolean 
           </article>)}
         </section>
       </div>
-    </>}
+    </>}{connected&&questions.length===0&&<div className="empty"><h2>{scope==="review"?"No publisher submissions are awaiting review.":"The archive is empty."}</h2><p>{scope==="review"?"Saved drafts remain private until the publisher selects Submit for review. Use Refresh after they submit.":"Published and legacy editorial questions appear here."}</p></div>}
   </div>;
 }
