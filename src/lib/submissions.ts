@@ -1,12 +1,12 @@
 import { hasLikelyAnswerLeak, isAnswerStatus, slugifyQuestion, type AnswerStatus, type StoryBlock } from "@/domain/question";
 import type { D1DatabaseLike, D1Statement } from "@/types/cloudflare";
 
-export type SubmissionState = "DRAFT" | "SUBMITTED" | "CHANGES_REQUESTED" | "APPROVED";
+export type SubmissionState = "DRAFT" | "SUBMITTED" | "CHANGES_REQUESTED" | "APPROVED" | "REJECTED";
 export type SubmissionSection = { key: string; kicker: string; title: string; blocks: StoryBlock[] };
 export type SubmissionInput = { questionText: string; categoryId: string; claimedStatus: AnswerStatus; contextSummary: string; tags: string[]; sections: SubmissionSection[] };
 export type SubmissionDetail = SubmissionInput & { id: string; slug: string; state: SubmissionState; reviewNotes: string; updatedAt: string };
 
-type QuestionRow = { id: string; slug: string; question_text: string; category_id: string; claimed_status: AnswerStatus; context_summary: string; submission_state: SubmissionState; review_notes: string; updated_at: string };
+type QuestionRow = { id: string; slug: string; question_text: string; category_id: string; claimed_status: AnswerStatus; context_summary: string; submission_state: Exclude<SubmissionState,"REJECTED">; editorial_outcome: "REJECTED" | null; review_notes: string; updated_at: string };
 type SectionRow = { id: string; section_key: string; kicker: string; title: string };
 type BlockRow = { section_id: string; block_type: StoryBlock["type"]; data_json: string };
 type TagRow = { name: string };
@@ -64,7 +64,7 @@ export async function replaceSubmissionContent(db: D1DatabaseLike, id: string, u
 }
 
 export async function loadSubmission(db:D1DatabaseLike,id:string,userId?:string):Promise<SubmissionDetail|null>{
-  const question=userId?await db.prepare("SELECT id,slug,question_text,category_id,claimed_status,context_summary,submission_state,COALESCE(review_notes,'') review_notes,updated_at FROM questions WHERE id=? AND publisher_id=? AND submission_state IS NOT NULL").bind(id,userId).first<QuestionRow>():await db.prepare("SELECT id,slug,question_text,category_id,claimed_status,context_summary,submission_state,COALESCE(review_notes,'') review_notes,updated_at FROM questions WHERE id=? AND submission_state IS NOT NULL").bind(id).first<QuestionRow>(); if(!question)return null;
+  const question=userId?await db.prepare("SELECT id,slug,question_text,category_id,claimed_status,context_summary,submission_state,editorial_outcome,COALESCE(review_notes,'') review_notes,updated_at FROM questions WHERE id=? AND publisher_id=? AND submission_state IS NOT NULL").bind(id,userId).first<QuestionRow>():await db.prepare("SELECT id,slug,question_text,category_id,claimed_status,context_summary,submission_state,editorial_outcome,COALESCE(review_notes,'') review_notes,updated_at FROM questions WHERE id=? AND submission_state IS NOT NULL").bind(id).first<QuestionRow>(); if(!question)return null;
   const [sectionsResult,blocksResult,tagsResult]=await Promise.all([db.prepare("SELECT id,section_key,kicker,title FROM question_story_sections WHERE question_id=? ORDER BY position").bind(id).all<SectionRow>(),db.prepare("SELECT b.section_id,b.block_type,b.data_json FROM question_story_blocks b JOIN question_story_sections s ON s.id=b.section_id WHERE s.question_id=? ORDER BY s.position,b.position").bind(id).all<BlockRow>(),db.prepare("SELECT t.name FROM tags t JOIN question_tags qt ON qt.tag_id=t.id WHERE qt.question_id=? ORDER BY t.name").bind(id).all<TagRow>()]); const blocks=blocksResult.results??[];
-  return {id:question.id,slug:question.slug,questionText:question.question_text,categoryId:question.category_id,claimedStatus:question.claimed_status,contextSummary:question.context_summary,tags:(tagsResult.results??[]).map(tag=>tag.name),sections:(sectionsResult.results??[]).map(section=>({key:section.section_key,kicker:section.kicker,title:section.title,blocks:blocks.filter(block=>block.section_id===section.id).map(block=>({type:block.block_type,...JSON.parse(block.data_json)}) as StoryBlock)})),state:question.submission_state,reviewNotes:question.review_notes,updatedAt:question.updated_at};
+  return {id:question.id,slug:question.slug,questionText:question.question_text,categoryId:question.category_id,claimedStatus:question.claimed_status,contextSummary:question.context_summary,tags:(tagsResult.results??[]).map(tag=>tag.name),sections:(sectionsResult.results??[]).map(section=>({key:section.section_key,kicker:section.kicker,title:section.title,blocks:blocks.filter(block=>block.section_id===section.id).map(block=>({type:block.block_type,...JSON.parse(block.data_json)}) as StoryBlock)})),state:question.editorial_outcome??question.submission_state,reviewNotes:question.review_notes,updatedAt:question.updated_at};
 }

@@ -1,4 +1,4 @@
 import type{D1DatabaseLike}from"@/types/cloudflare";import type{SubmissionInput}from"./submissions";
-export type SubmissionEventType="DRAFT_CREATED"|"DRAFT_SAVED"|"SUBMITTED"|"CHANGES_REQUESTED"|"RESUBMITTED"|"APPROVED"|"PUBLISHED";
+export type SubmissionEventType="DRAFT_CREATED"|"DRAFT_SAVED"|"SUBMITTED"|"CHANGES_REQUESTED"|"RESUBMITTED"|"APPROVED"|"PUBLISHED"|"REJECTED";
 export const submissionSnapshot=(input:SubmissionInput)=>JSON.stringify({questionText:input.questionText,contextSummary:input.contextSummary,sectionCount:input.sections.length,blockCount:input.sections.reduce((count,section)=>count+section.blocks.length,0),capturedAt:new Date().toISOString()});
 export const eventStatement=(db:D1DatabaseLike,questionId:string,actor:"PUBLISHER"|"EDITORIAL"|"SYSTEM",type:SubmissionEventType,note?:string|null,snapshot?:string|null)=>db.prepare("INSERT INTO submission_events (id,question_id,actor_type,event_type,note,snapshot_json) VALUES (?,?,?,?,?,?)").bind(crypto.randomUUID(),questionId,actor,type,note??null,snapshot??null);

@@ -370,7 +370,7 @@ export function SubmissionEditor({
       : "Drafts are private until you submit them for review.",
   );
   const locked =
-    initial?.state === "SUBMITTED" || initial?.state === "APPROVED";
+    initial?.state === "SUBMITTED" || initial?.state === "APPROVED" || initial?.state === "REJECTED";
   const payload = (action: "save" | "submit") => ({
     action,
     questionText,
@@ -448,11 +448,14 @@ export function SubmissionEditor({
         <h2>
           {initial?.state === "APPROVED"
             ? "Approved and published"
+            : initial?.state === "REJECTED"
+              ? "Not accepted for publication"
             : "Editorial review in progress"}
         </h2>
         <p>
-          This submission is read-only while editors review its status and
-          Story.
+          {initial?.state === "REJECTED"
+            ? "The editorial decision and explanation are preserved below."
+            : "This submission is read-only while editors review its status and Story."}
         </p>
         <button className="button ghost small" onClick={() => setPreview(true)}>
           Preview submission

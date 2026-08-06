@@ -22,7 +22,7 @@ export default async function SubmissionsPage() {
     (
       await db
         .prepare(
-          "SELECT id,slug,question_text,submission_state,COALESCE(review_notes,'') review_notes,updated_at,publication_state,(SELECT COUNT(*) FROM editorial_comments ec WHERE ec.question_id=questions.id AND ec.resolved=0) open_comments FROM questions WHERE publisher_id=? AND submission_state IS NOT NULL ORDER BY updated_at DESC",
+          "SELECT id,slug,question_text,CASE WHEN editorial_outcome='REJECTED' THEN 'REJECTED' ELSE submission_state END submission_state,COALESCE(review_notes,'') review_notes,updated_at,publication_state,(SELECT COUNT(*) FROM editorial_comments ec WHERE ec.question_id=questions.id AND ec.resolved=0) open_comments FROM questions WHERE publisher_id=? AND submission_state IS NOT NULL ORDER BY updated_at DESC",
         )
         .bind(user.id)
         .all<Row>()

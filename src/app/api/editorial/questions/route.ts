@@ -14,8 +14,8 @@ export async function GET(request: Request) {
   const { env } = await context();
   if (!await hasEditorialAccess(request, env)) return unauthorized();
   const scope=new URL(request.url).searchParams.get("scope")==="archive"?"archive":"review";
-  const where=scope==="review"?"q.submission_state='SUBMITTED'":"q.publication_state='PUBLISHED' OR q.submission_state IS NULL";
-  const [result,reviewCount]=await Promise.all([env.DB.prepare(`SELECT q.id,q.slug,q.question_text,q.publication_state,q.claimed_status,q.verified_status,q.verification_state,COALESCE(c.name,q.category_name,'Uncategorised') category_name,q.context_summary,q.updated_at,(SELECT COUNT(*) FROM question_story_sections s WHERE s.question_id=q.id) section_count,q.submission_state,q.review_notes FROM questions q LEFT JOIN categories c ON c.id=q.category_id WHERE ${where} ORDER BY q.updated_at DESC`).all<EditorialRow>(),env.DB.prepare("SELECT COUNT(*) count FROM questions WHERE submission_state='SUBMITTED'").first<{count:number}>()]);
+  const where=scope==="review"?"q.submission_state='SUBMITTED' AND q.editorial_outcome IS NULL":"q.publication_state='PUBLISHED' OR q.submission_state IS NULL";
+  const [result,reviewCount]=await Promise.all([env.DB.prepare(`SELECT q.id,q.slug,q.question_text,q.publication_state,q.claimed_status,q.verified_status,q.verification_state,COALESCE(c.name,q.category_name,'Uncategorised') category_name,q.context_summary,q.updated_at,(SELECT COUNT(*) FROM question_story_sections s WHERE s.question_id=q.id) section_count,q.submission_state,q.review_notes FROM questions q LEFT JOIN categories c ON c.id=q.category_id WHERE ${where} ORDER BY q.updated_at DESC`).all<EditorialRow>(),env.DB.prepare("SELECT COUNT(*) count FROM questions WHERE submission_state='SUBMITTED' AND editorial_outcome IS NULL").first<{count:number}>()]);
   return Response.json({ questions: result.results ?? [],scope,reviewCount:reviewCount?.count??0 }, { headers: editorialHeaders });
 }
 

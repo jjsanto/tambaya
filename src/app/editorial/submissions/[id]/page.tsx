@@ -34,6 +34,12 @@ export default async function ReviewSubmissionPage({ params }: { params: Promise
       <label>Revision summary<textarea name="reviewNotes" required minLength={10} maxLength={1000} rows={4} placeholder="Explain what the publisher should address before resubmitting." /></label>
       <button className="button" type="submit">Return to publisher</button>
     </form>}
+    {submission.state === "SUBMITTED" && <form className="review-decision rejection-decision" action={`/api/editorial/questions/${id}/comments`} method="post">
+      <input type="hidden" name="action" value="reject" />
+      <div><span className="eyebrow">Final decision</span><h2>Reject this question</h2><p>Use rejection when the question is unsuitable for Tambaya rather than merely needing revision. This decision makes the submission read-only.</p></div>
+      <label>Reason for rejection<textarea name="reviewNotes" required minLength={10} maxLength={1000} rows={4} placeholder="Explain clearly why this question cannot be accepted." /></label>
+      <button className="button danger" type="submit">Reject question</button>
+    </form>}
     <div className="review-layout"><main>{submission.sections.map((section, sectionIndex) => <section className="review-section" key={section.key}>
       <span className="eyebrow">{section.kicker}</span><h2>{section.title}</h2>
       {section.blocks.map((block, blockIndex) => {

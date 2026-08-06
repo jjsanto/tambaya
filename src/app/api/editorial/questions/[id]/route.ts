@@ -4,7 +4,7 @@ import { editorialHeaders, hasEditorialAccess, unauthorized } from "@/lib/editor
 import type { CloudflareBindings } from "@/types/cloudflare";
 import{eventStatement}from"@/lib/submission-events";
 
-type DraftRow = { id: string; question_text: string; context_summary: string; publication_state: string; submission_state: string | null };
+type DraftRow = { id: string; question_text: string; context_summary: string; publication_state: string; submission_state: string | null; editorial_outcome: string | null };
 type SectionRow = { id: string; section_key: string; kicker: string; title: string; position: number };
 type ParagraphRow = { section_id: string; body: string; position: number };
 type BlockRow = { section_id: string; block_type: StoryBlock["type"]; data_json: string; position: number };
@@ -46,7 +46,7 @@ export async function GET(request: Request, { params }: { params: Promise<{ id: 
   const { env } = await runtime();
   if (!await hasEditorialAccess(request, env)) return unauthorized();
   const { id } = await params;
-  const question = await env.DB.prepare("SELECT id,question_text,context_summary,publication_state,submission_state FROM questions WHERE id=?").bind(id).first<DraftRow>();
+  const question = await env.DB.prepare("SELECT id,question_text,context_summary,publication_state,submission_state,editorial_outcome FROM questions WHERE id=?").bind(id).first<DraftRow>();
   if (!question) return Response.json({ error: "Question not found." }, { status: 404 });
   const [sectionsResult, paragraphsResult, blocksResult, revisionsResult, revisionDraft] = await Promise.all([
     env.DB.prepare("SELECT id,section_key,kicker,title,position FROM question_story_sections WHERE question_id=? ORDER BY position").bind(id).all<SectionRow>(),
@@ -68,13 +68,19 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
   if (!await hasEditorialAccess(request, env)) return unauthorized();
   const { id } = await params;
   const body = await request.json() as Record<string, unknown>;
-  const draft = await env.DB.prepare("SELECT id,question_text,context_summary,publication_state,submission_state FROM questions WHERE id=?").bind(id).first<DraftRow>();
+  const draft = await env.DB.prepare("SELECT id,question_text,context_summary,publication_state,submission_state,editorial_outcome FROM questions WHERE id=?").bind(id).first<DraftRow>();
   if (!draft) return Response.json({ error: "Question not found." }, { status: 404 });
   if (body.action === "request_changes") {
-    if (draft.submission_state !== "SUBMITTED") return Response.json({ error: "Only submitted questions can be returned for changes." }, { status: 409 });
+    if (draft.submission_state !== "SUBMITTED" || draft.editorial_outcome) return Response.json({ error: "Only active submitted questions can be returned for changes." }, { status: 409 });
     const reviewNotes=String(body.reviewNotes??"").trim(); if(reviewNotes.length<10||reviewNotes.length>1000)return Response.json({error:"Give the publisher a useful note of 10–1000 characters."},{status:400});
     await env.DB.batch([env.DB.prepare("UPDATE questions SET submission_state='CHANGES_REQUESTED',review_notes=?,reviewed_at=CURRENT_TIMESTAMP,updated_at=CURRENT_TIMESTAMP WHERE id=?").bind(reviewNotes,id),eventStatement(env.DB,id,"EDITORIAL","CHANGES_REQUESTED",reviewNotes)]);
     return Response.json({id,submissionState:"CHANGES_REQUESTED"});
+  }
+  if (body.action === "reject") {
+    if (draft.submission_state !== "SUBMITTED" || draft.editorial_outcome) return Response.json({ error: "Only active submitted questions can be rejected." }, { status: 409 });
+    const reviewNotes=String(body.reviewNotes??"").trim(); if(reviewNotes.length<10||reviewNotes.length>1000)return Response.json({error:"Give the publisher a clear rejection reason of 10–1000 characters."},{status:400});
+    await env.DB.batch([env.DB.prepare("UPDATE questions SET editorial_outcome='REJECTED',publication_state='ARCHIVED',visibility='PRIVATE',review_notes=?,reviewed_at=CURRENT_TIMESTAMP,rejected_at=CURRENT_TIMESTAMP,updated_at=CURRENT_TIMESTAMP WHERE id=?").bind(reviewNotes,id),eventStatement(env.DB,id,"EDITORIAL","REJECTED",reviewNotes)]);
+    return Response.json({id,submissionState:"REJECTED"});
   }
   if (body.action === "begin_revision") {
     if (draft.publication_state !== "PUBLISHED") return Response.json({ error: "Only published questions need a separate revision copy." }, { status: 409 });
@@ -157,6 +163,7 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
     return Response.json({ id, publicationState: "PUBLISHED", revisionPublished: true });
   }
   if (body.action !== "publish") return Response.json({ error: "Unsupported editorial action." }, { status: 400 });
+  if (draft.editorial_outcome === "REJECTED") return Response.json({ error: "A rejected question cannot be published." }, { status: 409 });
   if (draft.publication_state !== "DRAFT") return Response.json({ error: "Only drafts can be published." }, { status: 409 });
   if (draft.submission_state && draft.submission_state !== "SUBMITTED") return Response.json({ error: "The publisher must submit this question before it can be published." }, { status: 409 });
   if (!isAnswerStatus(body.verifiedStatus)) return Response.json({ error: "Choose a verified status before publishing." }, { status: 400 });
