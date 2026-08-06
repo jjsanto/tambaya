@@ -5,7 +5,7 @@ import type { CloudflareBindings, D1DatabaseLike } from "@/types/cloudflare";
 export const authCookieName = "tambaya_session";
 export const passwordIterations = 50_000;
 export const sessionMaxAge = 60 * 60 * 24 * 30;
-export type AuthUser = { id: string; username: string };
+export type AuthUser = { id: string; username: string; plan:"FREE"|"PREMIUM" };
 
 const encoder = new TextEncoder();
 const hex = (bytes: Uint8Array) => Array.from(bytes, byte => byte.toString(16).padStart(2, "0")).join("");
@@ -45,7 +45,7 @@ export async function getCurrentUser(): Promise<AuthUser | null> {
   const db = await getAuthDatabase();
   if (!token || !db) return null;
   const digest = await digestSessionToken(token);
-  return db.prepare("SELECT u.id,u.username FROM auth_sessions s JOIN users u ON u.id=s.user_id WHERE s.id=? AND s.expires_at>CURRENT_TIMESTAMP").bind(digest).first<AuthUser>();
+  return db.prepare("SELECT u.id,u.username,u.plan FROM auth_sessions s JOIN users u ON u.id=s.user_id WHERE s.id=? AND s.expires_at>CURRENT_TIMESTAMP").bind(digest).first<AuthUser>();
 }
 
 export async function getRequestUser(request: Request): Promise<AuthUser | null> {
@@ -53,7 +53,7 @@ export async function getRequestUser(request: Request): Promise<AuthUser | null>
   const token = cookie?.slice(authCookieName.length + 1);
   const db = await getAuthDatabase();
   if (!token || !db) return null;
-  return db.prepare("SELECT u.id,u.username FROM auth_sessions s JOIN users u ON u.id=s.user_id WHERE s.id=? AND s.expires_at>CURRENT_TIMESTAMP").bind(await digestSessionToken(token)).first<AuthUser>();
+  return db.prepare("SELECT u.id,u.username,u.plan FROM auth_sessions s JOIN users u ON u.id=s.user_id WHERE s.id=? AND s.expires_at>CURRENT_TIMESTAMP").bind(await digestSessionToken(token)).first<AuthUser>();
 }
 
 export function isSameOrigin(request: Request) {

@@ -339,9 +339,11 @@ function BlockEditor({
 export function SubmissionEditor({
   categories,
   initial,
+  premium=false,
 }: {
   categories: Category[];
   initial?: SubmissionDetail;
+  premium?:boolean;
 }) {
   const router = useRouter();
   const [questionText, setQuestionText] = useState(initial?.questionText ?? "");
@@ -360,6 +362,7 @@ export function SubmissionEditor({
   );
   const [preview, setPreview] = useState(false);
   const [busy, setBusy] = useState(false);
+  const [generating,setGenerating]=useState(false);
   const [message, setMessage] = useState(
     initial?.reviewNotes
       ? `Editorial note: ${initial.reviewNotes}`
@@ -419,6 +422,7 @@ export function SubmissionEditor({
       setBusy(false);
     }
   }
+  async function generateStory(){setGenerating(true);setMessage("Tambaya AI is building a private encyclopedic proposal…");try{const response=await fetch("/api/submissions/generate",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({questionText})});const result=await response.json() as{error?:string;draft?:{categoryId:string;claimedStatus:AnswerStatus;contextSummary:string;tags:string[];sections:SubmissionSection[];warnings:string[]}};if(!response.ok||!result.draft)throw new Error(result.error??"Generation failed.");setCategoryId(result.draft.categoryId);setClaimedStatus(result.draft.claimedStatus);setContextSummary(result.draft.contextSummary);setTags(result.draft.tags.join(", "));setSections(result.draft.sections);setMessage("Premium proposal generated. Review every claim and edit it before saving or submitting.");}catch(error){setMessage(error instanceof Error?error.message:"Generation failed.");}finally{setGenerating(false);}}
   function updateBlock(
     sectionIndex: number,
     blockIndex: number,
@@ -472,6 +476,7 @@ export function SubmissionEditor({
       className="submission-editor"
       onSubmit={(event: FormEvent) => event.preventDefault()}
     >
+      {premium&&!initial&&<section className="premium-generator"><div><span className="eyebrow">Premium</span><h2>Start with only your question</h2><p>Enter the question title below, then let Tambaya AI propose the category, status, tags, context, and complete Story. Nothing is saved or published automatically.</p></div><button type="button" className="button" disabled={generating||questionText.trim().length<10||!questionText.trim().endsWith("?")} onClick={()=>void generateStory()}>{generating?"Generating…":"Generate complete Story"}</button></section>}
       <div className="submission-toolbar">
         <p role="status">{message}</p>
         <div>

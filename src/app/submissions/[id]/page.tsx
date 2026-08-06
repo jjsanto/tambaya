@@ -39,6 +39,7 @@ export default async function SubmissionPage({
       <SubmissionEditor
         categories={categories.results ?? []}
         initial={submission}
+        premium={user.plan === "PREMIUM"}
       />
       <section className="publisher-review-panel"><div><span className="eyebrow">Editorial feedback</span><h2>Comments on your Story</h2>{(commentsResult.results??[]).length?(commentsResult.results??[]).map(comment=><article className={comment.resolved?"resolved":""} key={comment.id}><strong>{comment.section_key.replaceAll("-"," ")} · {comment.block_position===null?"section":`block ${comment.block_position+1}`}</strong><p>{comment.body}</p><small>{comment.resolved?"Resolved":`Open · ${comment.created_at}`}</small></article>):<p className="empty compact-empty">No inline editorial comments yet.</p>}</div><aside><span className="eyebrow">Submission timeline</span>{(eventsResult.results??[]).map(event=><article key={event.id}><strong>{event.event_type.replaceAll("_"," ")}</strong><small>{event.actor_type.toLowerCase()} · {event.created_at}</small>{event.note&&<p>{event.note}</p>}{event.snapshot_json&&<details><summary>Compare revision snapshot</summary><pre>{JSON.stringify(JSON.parse(event.snapshot_json),null,2)}</pre></details>}</article>)}</aside></section>
     </div>
