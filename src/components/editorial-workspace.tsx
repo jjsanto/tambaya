@@ -173,6 +173,7 @@ export function EditorialWorkspace({ connected = false }: { connected?: boolean 
             <div><span>{question.submission_state??question.publication_state}</span><small>{question.category_name} · {question.section_count} Story section{question.section_count === 1 ? "" : "s"}</small></div>
             <h3>{question.question_text}</h3><p>{question.context_summary}</p>
             {question.publication_state === "DRAFT" ? <div className="editorial-actions">
+              {question.submission_state&&<a className="button ghost small" href={`/editorial/submissions/${question.id}`}>Review submission</a>}
               <button className="button ghost small" type="button" disabled={busy} onClick={() => void openEditor(question)}>Edit Story</button>{question.submission_state==="SUBMITTED"&&<button className="button ghost small" type="button" disabled={busy} onClick={()=>void requestChanges(question)}>Request changes</button>}
               <select aria-label={`Verified status for ${question.question_text}`} defaultValue={question.claimed_status} id={`status-${question.id}`}><option value="OPEN">Open</option><option value="PARTIALLY_ANSWERED">Partially answered</option><option value="ANSWERED">Answered</option></select>
               <button className="button small" type="button" disabled={busy} onClick={() => { const select = document.getElementById(`status-${question.id}`) as HTMLSelectElement; void publish(question, select.value); }}>Review & publish</button>

@@ -2,6 +2,7 @@ import { getCloudflareContext } from "@opennextjs/cloudflare";
 import { hasLikelyAnswerLeak, isAnswerStatus, type StoryBlock } from "@/domain/question";
 import { editorialHeaders, hasEditorialAccess, unauthorized } from "@/lib/editorial-auth";
 import type { CloudflareBindings } from "@/types/cloudflare";
+import{eventStatement}from"@/lib/submission-events";
 
 type DraftRow = { id: string; question_text: string; context_summary: string; publication_state: string; submission_state: string | null };
 type SectionRow = { id: string; section_key: string; kicker: string; title: string; position: number };
@@ -72,7 +73,7 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
   if (body.action === "request_changes") {
     if (draft.submission_state !== "SUBMITTED") return Response.json({ error: "Only submitted questions can be returned for changes." }, { status: 409 });
     const reviewNotes=String(body.reviewNotes??"").trim(); if(reviewNotes.length<10||reviewNotes.length>1000)return Response.json({error:"Give the publisher a useful note of 10–1000 characters."},{status:400});
-    await env.DB.prepare("UPDATE questions SET submission_state='CHANGES_REQUESTED',review_notes=?,reviewed_at=CURRENT_TIMESTAMP,updated_at=CURRENT_TIMESTAMP WHERE id=?").bind(reviewNotes,id).run();
+    await env.DB.batch([env.DB.prepare("UPDATE questions SET submission_state='CHANGES_REQUESTED',review_notes=?,reviewed_at=CURRENT_TIMESTAMP,updated_at=CURRENT_TIMESTAMP WHERE id=?").bind(reviewNotes,id),eventStatement(env.DB,id,"EDITORIAL","CHANGES_REQUESTED",reviewNotes)]);
     return Response.json({id,submissionState:"CHANGES_REQUESTED"});
   }
   if (body.action === "begin_revision") {
@@ -170,6 +171,7 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
     env.DB.prepare("DELETE FROM question_search WHERE question_id=?").bind(id),
     env.DB.prepare("INSERT INTO question_search (question_id,question_text,context_summary,category_name,tags) SELECT q.id,q.question_text,q.context_summary,COALESCE(c.name,q.category_name,''),COALESCE((SELECT group_concat(t.name,' ') FROM question_tags qt JOIN tags t ON t.id=qt.tag_id WHERE qt.question_id=q.id),'') FROM questions q LEFT JOIN categories c ON c.id=q.category_id WHERE q.id=?").bind(id),
     env.DB.prepare("INSERT INTO editorial_revisions (id,question_id,action,snapshot_json) VALUES (?,?,'PUBLISHED',?)").bind(crypto.randomUUID(),id,JSON.stringify({ verifiedStatus: body.verifiedStatus })),
+    eventStatement(env.DB,id,"EDITORIAL","PUBLISHED",`Verified status: ${body.verifiedStatus}`),
   ]);
   return Response.json({ id, publicationState: "PUBLISHED" });
 }

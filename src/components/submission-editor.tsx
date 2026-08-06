@@ -66,11 +66,13 @@ function BlockEditor({
       const response = await fetch("/api/uploads/image", { method: "POST", body: data });
       const result = (await response.json()) as { url?: string; error?: string };
       if (!response.ok || !result.url) throw new Error(result.error ?? "Upload failed.");
+      const previous=block.src.match(/^\/api\/uploads\/([a-f0-9-]{36}\.(?:jpg|png|webp|gif))$/)?.[1];
       change({
         ...block,
         src: result.url,
         alt: block.alt || file.name.replace(/\.[^.]+$/, "").replaceAll(/[-_]+/g, " "),
       });
+      if(previous)void fetch(`/api/uploads/${previous}`,{method:"DELETE"});
     } catch (error) {
       setUploadError(error instanceof Error ? error.message : "Upload failed.");
     } finally {
@@ -78,11 +80,13 @@ function BlockEditor({
     }
   }
 
+  function removeBlock(){const key=block.type==="IMAGE"?block.src.match(/^\/api\/uploads\/([a-f0-9-]{36}\.(?:jpg|png|webp|gif))$/)?.[1]:null;if(key)void fetch(`/api/uploads/${key}`,{method:"DELETE"});remove();}
+
   return (
     <article className="publisher-block">
       <header>
         <strong>{block.type.toLowerCase()}</strong>
-        <button type="button" onClick={remove}>
+        <button type="button" onClick={removeBlock}>
           Remove
         </button>
       </header>
