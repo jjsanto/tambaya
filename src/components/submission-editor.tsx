@@ -363,6 +363,7 @@ export function SubmissionEditor({
   const [preview, setPreview] = useState(false);
   const [busy, setBusy] = useState(false);
   const [generating,setGenerating]=useState(false);
+  const [generationSeconds,setGenerationSeconds]=useState(0);
   const [message, setMessage] = useState(
     initial?.reviewNotes
       ? `Editorial note: ${initial.reviewNotes}`
@@ -422,7 +423,7 @@ export function SubmissionEditor({
       setBusy(false);
     }
   }
-  async function generateStory(){setGenerating(true);setMessage("Tambaya AI is building a private encyclopedic proposal…");try{const response=await fetch("/api/submissions/generate",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({questionText})});const result=await response.json() as{error?:string;draft?:{categoryId:string;claimedStatus:AnswerStatus;contextSummary:string;tags:string[];sections:SubmissionSection[];warnings:string[]}};if(!response.ok||!result.draft)throw new Error(result.error??"Generation failed.");setCategoryId(result.draft.categoryId);setClaimedStatus(result.draft.claimedStatus);setContextSummary(result.draft.contextSummary);setTags(result.draft.tags.join(", "));setSections(result.draft.sections);setMessage("Premium proposal generated. Review every claim and edit it before saving or submitting.");}catch(error){setMessage(error instanceof Error?error.message:"Generation failed.");}finally{setGenerating(false);}}
+  async function generateStory(){const title=questionText.trim();if(title.length<10||!title.endsWith("?")){setMessage("Enter a complete question of at least 10 characters ending in a question mark (?).");return;}setGenerating(true);setGenerationSeconds(0);setMessage("Tambaya AI is building a private encyclopedic proposal. This normally takes about two minutes…");const timer=window.setInterval(()=>setGenerationSeconds(value=>value+1),1000);const controller=new AbortController();const timeout=window.setTimeout(()=>controller.abort(),240000);try{const response=await fetch("/api/submissions/generate",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({questionText:title}),signal:controller.signal});const result=await response.json() as{error?:string;draft?:{categoryId:string;claimedStatus:AnswerStatus;contextSummary:string;tags:string[];sections:SubmissionSection[];warnings:string[]}};if(!response.ok||!result.draft)throw new Error(result.error??"Generation failed.");setCategoryId(result.draft.categoryId);setClaimedStatus(result.draft.claimedStatus);setContextSummary(result.draft.contextSummary);setTags(result.draft.tags.join(", "));setSections(result.draft.sections);setMessage("Premium proposal generated. Review every claim and edit it before saving or submitting.");}catch(error){setMessage(error instanceof DOMException&&error.name==="AbortError"?"Generation timed out after four minutes. Please try again.":error instanceof Error?error.message:"Generation failed.");}finally{window.clearInterval(timer);window.clearTimeout(timeout);setGenerating(false);}}
   function updateBlock(
     sectionIndex: number,
     blockIndex: number,
@@ -476,7 +477,7 @@ export function SubmissionEditor({
       className="submission-editor"
       onSubmit={(event: FormEvent) => event.preventDefault()}
     >
-      {premium&&!initial&&<section className="premium-generator"><div><span className="eyebrow">Premium</span><h2>Start with only your question</h2><p>Enter the question title below, then let Tambaya AI propose the category, status, tags, context, and complete Story. Nothing is saved or published automatically.</p></div><button type="button" className="button" disabled={generating||questionText.trim().length<10||!questionText.trim().endsWith("?")} onClick={()=>void generateStory()}>{generating?"Generating…":"Generate complete Story"}</button></section>}
+      {premium&&!initial&&<section className="premium-generator"><div><span className="eyebrow">Premium</span><h2>Start with only your question</h2><p>Tambaya AI will propose the category, status, tags, context, and complete Story. Nothing is saved or published automatically.</p><label>Question title<input value={questionText} maxLength={300} disabled={generating} onChange={event=>setQuestionText(event.target.value)} placeholder="Why do some questions endure across generations?"/></label><small role="status">{generating?`Generating for ${generationSeconds} seconds — keep this page open…`:"Use at least 10 characters and end with ?. Generation usually takes about two minutes."}</small></div><button type="button" className="button" disabled={generating} onClick={()=>void generateStory()}>{generating?`Generating… ${generationSeconds}s`:"Generate complete Story"}</button></section>}
       <div className="submission-toolbar">
         <p role="status">{message}</p>
         <div>
