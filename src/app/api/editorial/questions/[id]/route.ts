@@ -3,7 +3,7 @@ import { hasLikelyAnswerLeak, isAnswerStatus, type StoryBlock } from "@/domain/q
 import { editorialHeaders, hasEditorialAccess, unauthorized } from "@/lib/editorial-auth";
 import type { CloudflareBindings } from "@/types/cloudflare";
 
-type DraftRow = { id: string; question_text: string; context_summary: string; publication_state: string };
+type DraftRow = { id: string; question_text: string; context_summary: string; publication_state: string; submission_state: string | null };
 type SectionRow = { id: string; section_key: string; kicker: string; title: string; position: number };
 type ParagraphRow = { section_id: string; body: string; position: number };
 type BlockRow = { section_id: string; block_type: StoryBlock["type"]; data_json: string; position: number };
@@ -45,7 +45,7 @@ export async function GET(request: Request, { params }: { params: Promise<{ id: 
   const { env } = await runtime();
   if (!await hasEditorialAccess(request, env)) return unauthorized();
   const { id } = await params;
-  const question = await env.DB.prepare("SELECT id,question_text,context_summary,publication_state FROM questions WHERE id=?").bind(id).first<DraftRow>();
+  const question = await env.DB.prepare("SELECT id,question_text,context_summary,publication_state,submission_state FROM questions WHERE id=?").bind(id).first<DraftRow>();
   if (!question) return Response.json({ error: "Question not found." }, { status: 404 });
   const [sectionsResult, paragraphsResult, blocksResult, revisionsResult, revisionDraft] = await Promise.all([
     env.DB.prepare("SELECT id,section_key,kicker,title,position FROM question_story_sections WHERE question_id=? ORDER BY position").bind(id).all<SectionRow>(),
@@ -67,8 +67,14 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
   if (!await hasEditorialAccess(request, env)) return unauthorized();
   const { id } = await params;
   const body = await request.json() as Record<string, unknown>;
-  const draft = await env.DB.prepare("SELECT id,question_text,context_summary,publication_state FROM questions WHERE id=?").bind(id).first<DraftRow>();
+  const draft = await env.DB.prepare("SELECT id,question_text,context_summary,publication_state,submission_state FROM questions WHERE id=?").bind(id).first<DraftRow>();
   if (!draft) return Response.json({ error: "Question not found." }, { status: 404 });
+  if (body.action === "request_changes") {
+    if (draft.submission_state !== "SUBMITTED") return Response.json({ error: "Only submitted questions can be returned for changes." }, { status: 409 });
+    const reviewNotes=String(body.reviewNotes??"").trim(); if(reviewNotes.length<10||reviewNotes.length>1000)return Response.json({error:"Give the publisher a useful note of 10–1000 characters."},{status:400});
+    await env.DB.prepare("UPDATE questions SET submission_state='CHANGES_REQUESTED',review_notes=?,reviewed_at=CURRENT_TIMESTAMP,updated_at=CURRENT_TIMESTAMP WHERE id=?").bind(reviewNotes,id).run();
+    return Response.json({id,submissionState:"CHANGES_REQUESTED"});
+  }
   if (body.action === "begin_revision") {
     if (draft.publication_state !== "PUBLISHED") return Response.json({ error: "Only published questions need a separate revision copy." }, { status: 409 });
     const existingDraft = await env.DB.prepare("SELECT question_id FROM question_revision_drafts WHERE question_id=?").bind(id).first<{ question_id: string }>();
@@ -151,6 +157,7 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
   }
   if (body.action !== "publish") return Response.json({ error: "Unsupported editorial action." }, { status: 400 });
   if (draft.publication_state !== "DRAFT") return Response.json({ error: "Only drafts can be published." }, { status: 409 });
+  if (draft.submission_state && draft.submission_state !== "SUBMITTED") return Response.json({ error: "The publisher must submit this question before it can be published." }, { status: 409 });
   if (!isAnswerStatus(body.verifiedStatus)) return Response.json({ error: "Choose a verified status before publishing." }, { status: 400 });
   if (draft.context_summary.trim().length < 150 || hasLikelyAnswerLeak(draft.context_summary)) return Response.json({ error: "The context summary must contain at least 150 characters and remain answer-free." }, { status: 400 });
   const storyCount = await env.DB.prepare("SELECT COUNT(*) count FROM question_story_sections WHERE question_id=?").bind(id).first<{ count: number }>();
@@ -159,7 +166,9 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
     env.DB.prepare("UPDATE question_content_sections SET publication_state='PUBLISHED',answer_leak_state='PASSED',reviewed_by='EDITORIAL',reviewed_at=CURRENT_TIMESTAMP,updated_at=CURRENT_TIMESTAMP WHERE question_id=? AND section_type='SUMMARY'").bind(id),
     env.DB.prepare("UPDATE question_story_sections SET answer_leak_state='PASSED',reviewed_at=CURRENT_TIMESTAMP WHERE question_id=?").bind(id),
     env.DB.prepare("UPDATE question_story_blocks SET answer_leak_state='PASSED',updated_at=CURRENT_TIMESTAMP WHERE section_id IN (SELECT id FROM question_story_sections WHERE question_id=?)").bind(id),
-    env.DB.prepare("UPDATE questions SET publication_state='PUBLISHED',verified_status=?,verification_state='VERIFIED',last_verified_at=CURRENT_TIMESTAMP,published_at=CURRENT_TIMESTAMP,updated_at=CURRENT_TIMESTAMP WHERE id=?").bind(body.verifiedStatus,id),
+    env.DB.prepare("UPDATE questions SET publication_state='PUBLISHED',visibility='PUBLIC',submission_state=CASE WHEN submission_state IS NULL THEN NULL ELSE 'APPROVED' END,review_notes=NULL,reviewed_at=CURRENT_TIMESTAMP,verified_status=?,verification_state='VERIFIED',last_verified_at=CURRENT_TIMESTAMP,published_at=CURRENT_TIMESTAMP,updated_at=CURRENT_TIMESTAMP WHERE id=?").bind(body.verifiedStatus,id),
+    env.DB.prepare("DELETE FROM question_search WHERE question_id=?").bind(id),
+    env.DB.prepare("INSERT INTO question_search (question_id,question_text,context_summary,category_name,tags) SELECT q.id,q.question_text,q.context_summary,COALESCE(c.name,q.category_name,''),COALESCE((SELECT group_concat(t.name,' ') FROM question_tags qt JOIN tags t ON t.id=qt.tag_id WHERE qt.question_id=q.id),'') FROM questions q LEFT JOIN categories c ON c.id=q.category_id WHERE q.id=?").bind(id),
     env.DB.prepare("INSERT INTO editorial_revisions (id,question_id,action,snapshot_json) VALUES (?,?,'PUBLISHED',?)").bind(crypto.randomUUID(),id,JSON.stringify({ verifiedStatus: body.verifiedStatus })),
   ]);
   return Response.json({ id, publicationState: "PUBLISHED" });

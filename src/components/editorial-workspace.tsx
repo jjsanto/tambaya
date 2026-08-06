@@ -4,7 +4,7 @@ import { FormEvent, useCallback, useEffect, useState } from "react";
 import type { StoryBlock } from "@/domain/question";
 import type { EnrichmentProposal } from "@/domain/enrichment";
 
-type EditorialQuestion = { id: string; slug: string; question_text: string; publication_state: "DRAFT" | "PUBLISHED" | "ARCHIVED"; claimed_status: string; verified_status: string | null; verification_state: string; category_name: string; context_summary: string; updated_at: string; section_count: number };
+type EditorialQuestion = { id: string; slug: string; question_text: string; publication_state: "DRAFT" | "PUBLISHED" | "ARCHIVED"; claimed_status: string; verified_status: string | null; verification_state: string; category_name: string; context_summary: string; updated_at: string; section_count: number; submission_state: string | null; review_notes: string | null };
 type StoryEditorSection = { key: string; kicker: string; title: string; paragraphs: string[]; blocks?: StoryBlock[] };
 type EditorialDetail = EditorialQuestion & { sections: StoryEditorSection[]; liveSections: StoryEditorSection[]; hasPendingRevision: boolean; revisionDraftUpdatedAt: string | null; revisions: { id: string; action: string; created_at: string }[] };
 
@@ -74,6 +74,8 @@ export function EditorialWorkspace({ connected = false }: { connected?: boolean 
     } catch (error) { setMessage(error instanceof Error ? error.message : "Unable to publish the draft."); }
     finally { setBusy(false); }
   }
+
+  async function requestChanges(question:EditorialQuestion){const reviewNotes=window.prompt("What should the publisher revise?");if(!reviewNotes)return;setBusy(true);try{await api(`/api/editorial/questions/${question.id}`,{method:"PATCH",headers:{"Content-Type":"application/json"},body:JSON.stringify({action:"request_changes",reviewNotes})});setMessage("The submission was returned to its publisher with your note.");await load();}catch(error){setMessage(error instanceof Error?error.message:"Unable to request changes.");}finally{setBusy(false);}}
 
   async function openEditor(question: EditorialQuestion) {
     setBusy(true);
@@ -168,10 +170,10 @@ export function EditorialWorkspace({ connected = false }: { connected?: boolean 
             <div className="story-editor-controls"><button type="button" className="button ghost small" onClick={() => setEditorSections(current => [...current,{ key:`section-${current.length + 1}`,kicker:"Context",title:"",paragraphs:[""] }])}>Add section</button><span>{editing.publication_state === "PUBLISHED" && <button className="button ghost small" type="button" disabled={busy} onClick={() => void discardRevision()}>Discard</button>}<button className="button small" disabled={busy}>Save revision</button>{editing.publication_state === "PUBLISHED" && editing.hasPendingRevision && <button className="button small publish-revision" type="button" disabled={busy} onClick={() => void publishRevision()}>Publish revision</button>}</span></div>{editing.revisions.length > 0 && <small>{editing.revisions.length} recent revision event{editing.revisions.length === 1 ? "" : "s"} retained.</small>}
           </form>}
           {questions.map(question => <article key={question.id} className={`editorial-record ${question.publication_state.toLowerCase()}`}>
-            <div><span>{question.publication_state}</span><small>{question.category_name} · {question.section_count} Story section{question.section_count === 1 ? "" : "s"}</small></div>
+            <div><span>{question.submission_state??question.publication_state}</span><small>{question.category_name} · {question.section_count} Story section{question.section_count === 1 ? "" : "s"}</small></div>
             <h3>{question.question_text}</h3><p>{question.context_summary}</p>
             {question.publication_state === "DRAFT" ? <div className="editorial-actions">
-              <button className="button ghost small" type="button" disabled={busy} onClick={() => void openEditor(question)}>Edit Story</button>
+              <button className="button ghost small" type="button" disabled={busy} onClick={() => void openEditor(question)}>Edit Story</button>{question.submission_state==="SUBMITTED"&&<button className="button ghost small" type="button" disabled={busy} onClick={()=>void requestChanges(question)}>Request changes</button>}
               <select aria-label={`Verified status for ${question.question_text}`} defaultValue={question.claimed_status} id={`status-${question.id}`}><option value="OPEN">Open</option><option value="PARTIALLY_ANSWERED">Partially answered</option><option value="ANSWERED">Answered</option></select>
               <button className="button small" type="button" disabled={busy} onClick={() => { const select = document.getElementById(`status-${question.id}`) as HTMLSelectElement; void publish(question, select.value); }}>Review & publish</button>
             </div> : <div className="editorial-actions"><button className="button ghost small" type="button" disabled={busy} onClick={() => void openEditor(question)}>Review Story</button><a className="button small" href={`/questions/${question.slug}`}>View live</a></div>}

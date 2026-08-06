@@ -4,7 +4,7 @@ import { hasLikelyAnswerLeak, isAnswerStatus } from "@/domain/question";
 import { editorialHeaders, hasEditorialAccess, unauthorized } from "@/lib/editorial-auth";
 import type { CloudflareBindings } from "@/types/cloudflare";
 
-type EditorialRow = { id: string; slug: string; question_text: string; publication_state: "DRAFT" | "PUBLISHED" | "ARCHIVED"; claimed_status: string; verified_status: string | null; verification_state: string; category_name: string; context_summary: string; updated_at: string; section_count: number };
+type EditorialRow = { id: string; slug: string; question_text: string; publication_state: "DRAFT" | "PUBLISHED" | "ARCHIVED"; claimed_status: string; verified_status: string | null; verification_state: string; category_name: string; context_summary: string; updated_at: string; section_count: number; submission_state: string | null; review_notes: string | null };
 
 async function context() {
   return await getCloudflareContext({ async: true }) as unknown as { env: CloudflareBindings };
@@ -13,7 +13,7 @@ async function context() {
 export async function GET(request: Request) {
   const { env } = await context();
   if (!await hasEditorialAccess(request, env)) return unauthorized();
-  const result = await env.DB.prepare("SELECT q.id,q.slug,q.question_text,q.publication_state,q.claimed_status,q.verified_status,q.verification_state,COALESCE(c.name,q.category_name,'Uncategorised') category_name,q.context_summary,q.updated_at,(SELECT COUNT(*) FROM question_story_sections s WHERE s.question_id=q.id) section_count FROM questions q LEFT JOIN categories c ON c.id=q.category_id ORDER BY CASE q.publication_state WHEN 'DRAFT' THEN 0 WHEN 'PUBLISHED' THEN 1 ELSE 2 END,q.updated_at DESC").all<EditorialRow>();
+  const result = await env.DB.prepare("SELECT q.id,q.slug,q.question_text,q.publication_state,q.claimed_status,q.verified_status,q.verification_state,COALESCE(c.name,q.category_name,'Uncategorised') category_name,q.context_summary,q.updated_at,(SELECT COUNT(*) FROM question_story_sections s WHERE s.question_id=q.id) section_count,q.submission_state,q.review_notes FROM questions q LEFT JOIN categories c ON c.id=q.category_id WHERE q.submission_state IS NULL OR q.submission_state<>'DRAFT' ORDER BY CASE q.submission_state WHEN 'SUBMITTED' THEN 0 WHEN 'CHANGES_REQUESTED' THEN 1 ELSE 2 END,q.updated_at DESC").all<EditorialRow>();
   return Response.json({ questions: result.results ?? [] }, { headers: editorialHeaders });
 }
 

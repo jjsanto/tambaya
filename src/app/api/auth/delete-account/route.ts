@@ -12,6 +12,10 @@ export async function POST(request: Request) {
   if (username !== user.username) return go(request,"/account?securityError=delete-confirmation");
   const record = await db.prepare("SELECT password_hash,password_salt,password_iterations FROM users WHERE id=?").bind(user.id).first<PasswordRow>();
   if (!record || !await verifyPassword(password,record.password_hash,record.password_salt,record.password_iterations)) return go(request,"/account?securityError=delete-password");
-  await db.prepare("DELETE FROM users WHERE id=?").bind(user.id).run();
+  await db.batch([
+    db.prepare("DELETE FROM questions WHERE publisher_id=? AND publication_state='DRAFT'").bind(user.id),
+    db.prepare("UPDATE questions SET publisher_id=NULL WHERE publisher_id=? AND publication_state='PUBLISHED'").bind(user.id),
+    db.prepare("DELETE FROM users WHERE id=?").bind(user.id),
+  ]);
   return go(request,"/?accountDeleted=1",sessionCookie("",0));
 }
