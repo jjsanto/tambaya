@@ -47,3 +47,16 @@ export async function getCurrentUser(): Promise<AuthUser | null> {
   const digest = await digestSessionToken(token);
   return db.prepare("SELECT u.id,u.username FROM auth_sessions s JOIN users u ON u.id=s.user_id WHERE s.id=? AND s.expires_at>CURRENT_TIMESTAMP").bind(digest).first<AuthUser>();
 }
+
+export async function getRequestUser(request: Request): Promise<AuthUser | null> {
+  const cookie = request.headers.get("cookie")?.split(";").map(part => part.trim()).find(part => part.startsWith(`${authCookieName}=`));
+  const token = cookie?.slice(authCookieName.length + 1);
+  const db = await getAuthDatabase();
+  if (!token || !db) return null;
+  return db.prepare("SELECT u.id,u.username FROM auth_sessions s JOIN users u ON u.id=s.user_id WHERE s.id=? AND s.expires_at>CURRENT_TIMESTAMP").bind(await digestSessionToken(token)).first<AuthUser>();
+}
+
+export function isSameOrigin(request: Request) {
+  const origin = request.headers.get("origin");
+  return !origin || origin === new URL(request.url).origin;
+}
