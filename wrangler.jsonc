@@ -10,5 +10,8 @@
   "observability": { "enabled": true },
   "d1_databases": [
     { "binding": "DB", "database_name": "tambaya", "database_id": "cea1a4e2-74c2-4b35-b3a9-3e33f97e8626", "migrations_dir": "migrations" }
+  ],
+  "kv_namespaces": [
+    { "binding": "QUESTION_IMAGES", "id": "3a01ac8b6c0f4df2a933c5b85a1b2a5c" }
   ]
 }
