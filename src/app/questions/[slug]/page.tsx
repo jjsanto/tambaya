@@ -31,6 +31,7 @@ export default async function QuestionPage({
     getCurrentUser(),
   ]);
   let bookmarked = false;
+  let followingQuestion = false;
   let userRating = 0;
   let collections: UserCollection[] = [];
   const publicDb=await getAuthDatabase();
@@ -38,7 +39,7 @@ export default async function QuestionPage({
   if (user) {
     const db = await getAuthDatabase();
     if (db) {
-      const [bookmark, ownedCollections,ownRating] = await Promise.all([
+      const [bookmark, ownedCollections,ownRating,follow] = await Promise.all([
         db
           .prepare(
             "SELECT 1 saved FROM user_bookmarks WHERE user_id=? AND question_id=?",
@@ -47,10 +48,12 @@ export default async function QuestionPage({
           .first<{ saved: number }>(),
         getCollections(db, user.id),
         db.prepare("SELECT rating FROM question_ratings WHERE user_id=? AND question_id=?").bind(user.id,question.id).first<{rating:number}>(),
+        db.prepare("SELECT 1 followed FROM user_question_follows WHERE user_id=? AND question_id=?").bind(user.id,question.id).first<{followed:number}>(),
       ]);
       bookmarked = Boolean(bookmark);
       collections = ownedCollections;
       userRating = ownRating?.rating ?? 0;
+      followingQuestion = Boolean(follow);
     }
   }
   return (
@@ -111,6 +114,13 @@ export default async function QuestionPage({
                 <input type="hidden" name="returnTo" value={`/questions/${question.slug}`} />
                 <span>{ratingSummary?.count ? `${Number(ratingSummary.average).toFixed(1)} from ${ratingSummary.count}` : "Not rated yet"}</span>
                 <div role="group" aria-label="Rate how worth asking this question is">{[1,2,3,4,5].map(value=><button key={value} name="rating" value={value} title={`${value} out of 5`} aria-label={`${value} out of 5`} className={value<=userRating?"selected":""}>★</button>)}</div>
+              </form>
+              <form action="/api/follows" method="post">
+                <input type="hidden" name="targetType" value="question" />
+                <input type="hidden" name="targetId" value={question.id} />
+                <input type="hidden" name="action" value={followingQuestion ? "remove" : "add"} />
+                <input type="hidden" name="returnTo" value={`/questions/${question.slug}`} />
+                <button className={`button small ${followingQuestion ? "ghost" : ""}`}>{followingQuestion ? "✓ Following" : "+ Follow"}</button>
               </form>
               <form action="/api/bookmarks" method="post">
                 <input type="hidden" name="questionId" value={question.id} />
