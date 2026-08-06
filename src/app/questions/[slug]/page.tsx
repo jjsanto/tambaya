@@ -31,13 +31,14 @@ export default async function QuestionPage({
     getCurrentUser(),
   ]);
   let bookmarked = false;
+  let userRating = 0;
   let collections: UserCollection[] = [];
   const publicDb=await getAuthDatabase();
-  const publisher=publicDb?await publicDb.prepare("SELECT u.username FROM questions q LEFT JOIN users u ON u.id=q.publisher_id WHERE q.id=?").bind(question.id).first<{username:string|null}>():null;
+  const [publisher,ratingSummary]=publicDb?await Promise.all([publicDb.prepare("SELECT u.username FROM questions q LEFT JOIN users u ON u.id=q.publisher_id WHERE q.id=?").bind(question.id).first<{username:string|null}>(),publicDb.prepare("SELECT COUNT(*) count,COALESCE(AVG(rating),0) average FROM question_ratings WHERE question_id=?").bind(question.id).first<{count:number;average:number}>()]):[null,null];
   if (user) {
     const db = await getAuthDatabase();
     if (db) {
-      const [bookmark, ownedCollections] = await Promise.all([
+      const [bookmark, ownedCollections,ownRating] = await Promise.all([
         db
           .prepare(
             "SELECT 1 saved FROM user_bookmarks WHERE user_id=? AND question_id=?",
@@ -45,9 +46,11 @@ export default async function QuestionPage({
           .bind(user.id, question.id)
           .first<{ saved: number }>(),
         getCollections(db, user.id),
+        db.prepare("SELECT rating FROM question_ratings WHERE user_id=? AND question_id=?").bind(user.id,question.id).first<{rating:number}>(),
       ]);
       bookmarked = Boolean(bookmark);
       collections = ownedCollections;
+      userRating = ownRating?.rating ?? 0;
     }
   }
   return (
@@ -99,10 +102,16 @@ export default async function QuestionPage({
         <div className="shell">
           <div>
             <strong>Keep this question</strong>
-            <span>Save it for later or add it to a private collection.</span>
+            <span>Save it, collect it, or rate how worth asking it is.</span>
           </div>
           {user ? (
             <div className="save-actions">
+              <form action="/api/ratings" method="post" className="question-rating">
+                <input type="hidden" name="questionId" value={question.id} />
+                <input type="hidden" name="returnTo" value={`/questions/${question.slug}`} />
+                <span>{ratingSummary?.count ? `${Number(ratingSummary.average).toFixed(1)} from ${ratingSummary.count}` : "Not rated yet"}</span>
+                <div role="group" aria-label="Rate how worth asking this question is">{[1,2,3,4,5].map(value=><button key={value} name="rating" value={value} title={`${value} out of 5`} aria-label={`${value} out of 5`} className={value<=userRating?"selected":""}>★</button>)}</div>
+              </form>
               <form action="/api/bookmarks" method="post">
                 <input type="hidden" name="questionId" value={question.id} />
                 <input
