@@ -1,3 +1,146 @@
-import type{Metadata}from"next";import Link from"next/link";import{notFound,redirect}from"next/navigation";import{getAuthDatabase,getCurrentUser}from"@/lib/auth";import{getCircleAccess}from"@/lib/circles";
-export const metadata:Metadata={title:"Circle conversation"};type Conversation={id:string;title:string;question_text:string;slug:string;category_name:string};type Message={id:string;parent_id:string|null;body:string;created_at:string;username:string};
-export default async function ConversationPage({params,searchParams}:{params:Promise<{id:string;conversationId:string}>;searchParams:Promise<{error?:string}>}){const user=await getCurrentUser();if(!user)redirect("/login");const db=await getAuthDatabase();if(!db)redirect("/login");const[{id,conversationId},query]=await Promise.all([params,searchParams]);const access=await getCircleAccess(db,id,user.id);if(!access)notFound();const[conversation,messages]=await Promise.all([db.prepare("SELECT cc.id,cc.title,q.question_text,q.slug,COALESCE(c.name,q.category_name,'Uncategorised') category_name FROM circle_conversations cc JOIN questions q ON q.id=cc.question_id LEFT JOIN categories c ON c.id=q.category_id WHERE cc.id=? AND cc.circle_id=?").bind(conversationId,id).first<Conversation>(),db.prepare("SELECT m.id,m.parent_id,m.body,m.created_at,u.username FROM circle_messages m JOIN users u ON u.id=m.author_id WHERE m.conversation_id=? ORDER BY m.created_at").bind(conversationId).all<Message>()]);if(!conversation)notFound();const rows=messages.results??[];const topLevel=rows.filter(message=>!message.parent_id);const action=`/api/circles/${id}/conversations/${conversationId}/messages`;return <div className="page shell conversation-page"><nav className="breadcrumbs"><Link href="/circles">Circles</Link><span>/</span><Link href={`/circles/${id}`}>{access.name}</Link><span>/</span><span>Conversation</span></nav><header className="page-intro"><span className="eyebrow">Private · {conversation.category_name}</span><h1>{conversation.title}</h1><p>Discussing <Link href={`/questions/${conversation.slug}`}>{conversation.question_text}</Link></p><strong>Messages here are visible only to accepted members of {access.name}.</strong></header>{query.error&&<p className="auth-error">Write at least two characters.</p>}<section className="conversation-thread">{topLevel.map(message=><article className="circle-message" key={message.id}><header><strong>{message.username}</strong><time>{new Date(message.created_at.replace(" ","T")+"Z").toLocaleString("en-GB")}</time></header><p>{message.body}</p><div className="circle-replies">{rows.filter(reply=>reply.parent_id===message.id).map(reply=><article key={reply.id}><header><strong>{reply.username}</strong><time>{new Date(reply.created_at.replace(" ","T")+"Z").toLocaleString("en-GB")}</time></header><p>{reply.body}</p></article>)}</div><details><summary>Reply privately</summary><form action={action} method="post"><input type="hidden" name="parentId" value={message.id}/><textarea name="body" required minLength={2} maxLength={10000} rows={3}/><button className="button small">Reply</button></form></details></article>)}{!topLevel.length&&<p className="empty">Begin this private conversation.</p>}</section><form className="circle-composer" action={action} method="post"><label>Add to the conversation<textarea name="body" required minLength={2} maxLength={10000} rows={6} placeholder="Share a thought, possible answer, source, or a new line of inquiry. This remains private to the circle."/></label><button className="button">Post privately</button></form></div>}
+import type { Metadata } from "next";
+import Link from "next/link";
+import { notFound, redirect } from "next/navigation";
+import { getAuthDatabase, getCurrentUser } from "@/lib/auth";
+import { getCircleAccess } from "@/lib/circles";
+export const metadata: Metadata = { title: "Circle conversation" };
+type Conversation = {
+  id: string;
+  title: string;
+  question_text: string;
+  slug: string;
+  category_name: string;
+};
+type Message = {
+  id: string;
+  parent_id: string | null;
+  body: string;
+  created_at: string;
+  username: string;
+};
+export default async function ConversationPage({
+  params,
+  searchParams,
+}: {
+  params: Promise<{ id: string; conversationId: string }>;
+  searchParams: Promise<{ error?: string }>;
+}) {
+  const user = await getCurrentUser();
+  if (!user) redirect("/login");
+  const db = await getAuthDatabase();
+  if (!db) redirect("/login");
+  const [{ id, conversationId }, query] = await Promise.all([
+    params,
+    searchParams,
+  ]);
+  const access = await getCircleAccess(db, id, user.id);
+  if (!access) notFound();
+  const [conversation, messages] = await Promise.all([
+    db
+      .prepare(
+        "SELECT cc.id,cc.title,q.question_text,q.slug,COALESCE(c.name,q.category_name,'Uncategorised') category_name FROM circle_conversations cc JOIN questions q ON q.id=cc.question_id LEFT JOIN categories c ON c.id=q.category_id WHERE cc.id=? AND cc.circle_id=?",
+      )
+      .bind(conversationId, id)
+      .first<Conversation>(),
+    db
+      .prepare(
+        "SELECT m.id,m.parent_id,m.body,m.created_at,u.username FROM circle_messages m JOIN users u ON u.id=m.author_id WHERE m.conversation_id=? ORDER BY m.created_at",
+      )
+      .bind(conversationId)
+      .all<Message>(),
+  ]);
+  if (!conversation) notFound();
+  const rows = messages.results ?? [];
+  const topLevel = rows.filter((message) => !message.parent_id);
+  const action = `/api/circles/${id}/conversations/${conversationId}/messages`;
+  return (
+    <div className="page shell conversation-page">
+      <nav className="breadcrumbs">
+        <Link href="/circles">Circles</Link>
+        <span>/</span>
+        <Link href={`/circles/${id}`}>{access.name}</Link>
+        <span>/</span>
+        <span>Conversation</span>
+      </nav>
+      <header className="page-intro">
+        <span className="eyebrow">Private · {conversation.category_name}</span>
+        <h1>{conversation.title}</h1>
+        <p>
+          Discussing{" "}
+          <Link href={`/questions/${conversation.slug}`}>
+            {conversation.question_text}
+          </Link>
+        </p>
+        <strong>
+          Messages here are visible only to accepted members of {access.name}.
+        </strong>
+      </header>
+      {query.error && (
+        <p className="auth-error">Write at least two characters.</p>
+      )}
+      <section className="conversation-thread">
+        {topLevel.map((message) => (
+          <article className="circle-message" key={message.id}>
+            <header>
+              <strong>{message.username}</strong>
+              <time>
+                {new Date(
+                  message.created_at.replace(" ", "T") + "Z",
+                ).toLocaleString("en-GB")}
+              </time>
+            </header>
+            <p>{message.body}</p>
+            <div className="circle-replies">
+              {rows
+                .filter((reply) => reply.parent_id === message.id)
+                .map((reply) => (
+                  <article key={reply.id}>
+                    <header>
+                      <strong>{reply.username}</strong>
+                      <time>
+                        {new Date(
+                          reply.created_at.replace(" ", "T") + "Z",
+                        ).toLocaleString("en-GB")}
+                      </time>
+                    </header>
+                    <p>{reply.body}</p>
+                  </article>
+                ))}
+            </div>
+            <details>
+              <summary>Reply privately</summary>
+              <form action={action} method="post">
+                <input type="hidden" name="parentId" value={message.id} />
+                <textarea
+                  name="body"
+                  required
+                  minLength={2}
+                  maxLength={10000}
+                  rows={3}
+                />
+                <button className="button small">Reply</button>
+              </form>
+            </details>
+          </article>
+        ))}
+        {!topLevel.length && (
+          <p className="empty">Begin this private conversation.</p>
+        )}
+      </section>
+      <form className="circle-composer" action={action} method="post">
+        <label>
+          Add to the conversation
+          <textarea
+            name="body"
+            required
+            minLength={2}
+            maxLength={10000}
+            rows={6}
+            placeholder="Share a thought, possible answer, source, or a new line of inquiry. This remains private to the circle."
+          />
+        </label>
+        <button className="button">Post privately</button>
+      </form>
+    </div>
+  );
+}
