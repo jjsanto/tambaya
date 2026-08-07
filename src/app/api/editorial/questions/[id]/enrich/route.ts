@@ -134,6 +134,14 @@ export async function POST(
     env: CloudflareBindings;
   };
   if (!(await hasEditorialAccess(request, env))) return unauthorized();
+  const body = (await request.json().catch(() => ({}))) as {
+    instruction?: unknown;
+    contextSummary?: unknown;
+    sections?: unknown;
+  };
+  const instruction = String(body.instruction ?? "")
+    .trim()
+    .slice(0, 1000);
   if (!env.AI)
     return Response.json(
       { error: "Workers AI is not configured for this deployment." },
@@ -169,6 +177,8 @@ Category: ${question.category_name}
 Publisher's claimed answer status: ${question.claimed_status}
 Existing context: ${question.context_summary}
 Existing source records: ${JSON.stringify(references.results ?? [])}
+Current unsaved working copy: ${JSON.stringify({ contextSummary: body.contextSummary, sections: body.sections })}
+Editorial change request: ${instruction || "Create a comprehensive general enrichment."}
 Existing question candidates: ${JSON.stringify(candidatesResult.results ?? [])}
 
 Write a 180–350 word context summary plus 5–8 encyclopedic Story sections about the question's origins, changing vocabulary, history of inquiry, significance, appearances across fields, methodological difficulties, and lines of further inquiry. Each section paragraph must exceed 120 words. Explain the QUESTION and its history; do not state, imply, or summarize an answer. Never use phrases such as “the answer is”, “this proves”, or “therefore the answer”. The summary, lists, and callouts must also remain contextual.

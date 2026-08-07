@@ -54,6 +54,7 @@ type ApprovedRelationship = {
   targetSlug: string;
   type: RelationshipType;
   confidence: number;
+  rationale: string;
 };
 type RelationshipRow = {
   targetId: string;
@@ -62,6 +63,13 @@ type RelationshipRow = {
   type: RelationshipType;
   confidence: number;
   verified: number;
+  rationale: string;
+};
+type CandidateQuestion = {
+  id: string;
+  slug: string;
+  questionText: string;
+  category: string;
 };
 
 function normalizeBlocks(value: unknown): StoryBlock[] | null {
@@ -181,6 +189,7 @@ export async function GET(
     revisionsResult,
     revisionDraft,
     relationshipsResult,
+    candidatesResult,
   ] = await Promise.all([
     env.DB.prepare(
       "SELECT id,section_key,kicker,title,position FROM question_story_sections WHERE question_id=? ORDER BY position",
@@ -208,10 +217,15 @@ export async function GET(
       .bind(id)
       .first<RevisionDraftRow>(),
     env.DB.prepare(
-      "SELECT r.target_question_id targetId,r.target_slug targetSlug,q.question_text targetQuestion,r.relationship_type type,COALESCE(r.confidence,0) confidence,r.verified FROM question_relationships r JOIN questions q ON q.id=r.target_question_id WHERE r.source_question_id=? AND r.created_by='AI_ASSISTED' ORDER BY r.verified DESC,r.confidence DESC",
+      "SELECT r.target_question_id targetId,r.target_slug targetSlug,q.question_text targetQuestion,r.relationship_type type,COALESCE(r.confidence,0) confidence,r.verified,COALESCE(r.rationale,'') rationale FROM question_relationships r JOIN questions q ON q.id=r.target_question_id WHERE r.source_question_id=? AND r.created_by='AI_ASSISTED' ORDER BY r.verified DESC,r.confidence DESC",
     )
       .bind(id)
       .all<RelationshipRow>(),
+    env.DB.prepare(
+      "SELECT id,slug,question_text questionText,category_name category FROM questions WHERE id<>? AND publication_state='PUBLISHED' ORDER BY question_text LIMIT 500",
+    )
+      .bind(id)
+      .all<CandidateQuestion>(),
   ]);
   const paragraphs = paragraphsResult.results ?? [];
   const blocks = blocksResult.results ?? [];
@@ -256,6 +270,7 @@ export async function GET(
           workingCopy?.contextSummary ?? question.context_summary,
         sections: workingSections ?? liveSections,
         liveSections,
+        candidates: candidatesResult.results ?? [],
         relationships: (relationshipsResult.results ?? []).map(
           (relationship) => ({
             ...relationship,
@@ -431,13 +446,17 @@ export async function PATCH(
       const targetSlug = String(item.targetSlug ?? "");
       const type = item.type;
       const confidence = Number(item.confidence);
+      const rationale = String(item.rationale ?? "")
+        .trim()
+        .slice(0, 1000);
       if (
         !targetId ||
         targetId === id ||
         !isRelationshipType(type) ||
         !Number.isFinite(confidence) ||
         confidence < 0 ||
-        confidence > 1
+        confidence > 1 ||
+        rationale.length < 10
       )
         return Response.json(
           { error: "One proposed question relationship is invalid." },
@@ -456,7 +475,7 @@ export async function PATCH(
           },
           { status: 400 },
         );
-      relationships.push({ targetId, targetSlug, type, confidence });
+      relationships.push({ targetId, targetSlug, type, confidence, rationale });
     }
     if (
       !Array.isArray(body.sections) ||
@@ -627,13 +646,14 @@ export async function PATCH(
     relationships.forEach((relationship) =>
       statements.push(
         env.DB.prepare(
-          "INSERT INTO question_relationships (id,source_question_id,target_question_id,source_slug,target_slug,relationship_type,created_by,confidence,verified) SELECT ?,q.id,?,q.slug,?,?, 'AI_ASSISTED',?,1 FROM questions q WHERE q.id=? ON CONFLICT(source_question_id,target_question_id,relationship_type) DO UPDATE SET created_by='AI_ASSISTED',confidence=excluded.confidence,verified=1",
+          "INSERT INTO question_relationships (id,source_question_id,target_question_id,source_slug,target_slug,relationship_type,created_by,confidence,verified,rationale) SELECT ?,q.id,?,q.slug,?,?, 'AI_ASSISTED',?,1,? FROM questions q WHERE q.id=? ON CONFLICT(source_question_id,target_question_id,relationship_type) DO UPDATE SET created_by='AI_ASSISTED',confidence=excluded.confidence,verified=1,rationale=excluded.rationale",
         ).bind(
           crypto.randomUUID(),
           relationship.targetId,
           relationship.targetSlug,
           relationship.type,
           relationship.confidence,
+          relationship.rationale,
           id,
         ),
       ),
@@ -786,13 +806,14 @@ export async function PATCH(
     (revised.relationships ?? []).forEach((relationship) =>
       statements.push(
         env.DB.prepare(
-          "INSERT INTO question_relationships (id,source_question_id,target_question_id,source_slug,target_slug,relationship_type,created_by,confidence,verified) SELECT ?,q.id,?,q.slug,?,?, 'AI_ASSISTED',?,1 FROM questions q WHERE q.id=? ON CONFLICT(source_question_id,target_question_id,relationship_type) DO UPDATE SET created_by='AI_ASSISTED',confidence=excluded.confidence,verified=1",
+          "INSERT INTO question_relationships (id,source_question_id,target_question_id,source_slug,target_slug,relationship_type,created_by,confidence,verified,rationale) SELECT ?,q.id,?,q.slug,?,?, 'AI_ASSISTED',?,1,? FROM questions q WHERE q.id=? ON CONFLICT(source_question_id,target_question_id,relationship_type) DO UPDATE SET created_by='AI_ASSISTED',confidence=excluded.confidence,verified=1,rationale=excluded.rationale",
         ).bind(
           crypto.randomUUID(),
           relationship.targetId,
           relationship.targetSlug,
           relationship.type,
           relationship.confidence,
+          relationship.rationale,
           id,
         ),
       ),

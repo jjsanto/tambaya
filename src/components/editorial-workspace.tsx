@@ -36,6 +36,12 @@ type EditorialDetail = EditorialQuestion & {
   relationships: (EnrichmentProposal["relationships"][number] & {
     verified: number;
   })[];
+  candidates: {
+    id: string;
+    slug: string;
+    questionText: string;
+    category: string;
+  }[];
 };
 
 const labels: Record<string, string> = {
@@ -318,6 +324,8 @@ export function EditorialWorkspace({
   const [relationshipSuggestions, setRelationshipSuggestions] = useState<
     EnrichmentProposal["relationships"]
   >([]);
+  const [manualTargetId, setManualTargetId] = useState("");
+  const [aiInstruction, setAiInstruction] = useState("");
   const [scope, setScope] = useState<"review" | "archive">("review");
   const [workspaceMode, setWorkspaceMode] = useState<"review" | "create">(
     "review",
@@ -519,6 +527,7 @@ export function EditorialWorkspace({
       setEditorSections(detail.sections.length ? detail.sections : defaults);
       setPreviewStory(false);
       setRelationshipSuggestions(detail.relationships ?? []);
+      setManualTargetId("");
       setApprovedRelationships(
         new Set(
           (detail.relationships ?? [])
@@ -634,7 +643,7 @@ export function EditorialWorkspace({
     );
   }
 
-  async function enrichStory() {
+  async function enrichStory(instruction = "") {
     if (
       !editing ||
       !window.confirm(
@@ -649,7 +658,15 @@ export function EditorialWorkspace({
     try {
       const result = await api(
         `/api/editorial/questions/${editing.id}/enrich`,
-        { method: "POST" },
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            instruction,
+            contextSummary: editorContext,
+            sections: editorSections,
+          }),
+        },
       );
       if (!result.proposal)
         throw new Error("The enrichment service returned no proposal.");
@@ -658,6 +675,7 @@ export function EditorialWorkspace({
       setApprovedRelationships(new Set());
       setEditorContext(result.proposal.contextSummary);
       setEditorSections(result.proposal.sections);
+      setAiInstruction("");
       setMessage(
         "Proposal ready for editorial review. Verify its claims and sources, edit it, then save the private revision.",
       );
@@ -982,6 +1000,32 @@ export function EditorialWorkspace({
                       {busy ? "Working…" : "Enrich question"}
                     </button>
                   </section>
+                  <section className="ai-change-request">
+                    <label>
+                      Ask AI to change the current working copy
+                      <textarea
+                        rows={3}
+                        maxLength={1000}
+                        value={aiInstruction}
+                        onChange={(event) =>
+                          setAiInstruction(event.target.value)
+                        }
+                        placeholder="For example: make the introduction less technical, preserve the sections on history, and add a section about methodological difficulties."
+                      />
+                    </label>
+                    <button
+                      type="button"
+                      className="button ghost small"
+                      disabled={busy || aiInstruction.trim().length < 10}
+                      onClick={() => void enrichStory(aiInstruction.trim())}
+                    >
+                      Propose requested changes
+                    </button>
+                    <small>
+                      The complete revised copy remains unsaved until you review
+                      and save it.
+                    </small>
+                  </section>
                   {proposal && (
                     <aside className="enrichment-review">
                       <div>
@@ -1028,6 +1072,61 @@ export function EditorialWorkspace({
                         relationships are saved to the navigable question map.
                       </p>
                     </div>
+                    <div className="manual-connection">
+                      <select
+                        aria-label="Published question to connect"
+                        value={manualTargetId}
+                        onChange={(event) =>
+                          setManualTargetId(event.target.value)
+                        }
+                      >
+                        <option value="">Select a published question…</option>
+                        {(editing.candidates ?? [])
+                          .filter(
+                            (candidate) =>
+                              !relationshipSuggestions.some(
+                                (item) => item.targetId === candidate.id,
+                              ),
+                          )
+                          .map((candidate) => (
+                            <option key={candidate.id} value={candidate.id}>
+                              {candidate.questionText} · {candidate.category}
+                            </option>
+                          ))}
+                      </select>
+                      <button
+                        type="button"
+                        className="button ghost small"
+                        disabled={!manualTargetId}
+                        onClick={() => {
+                          const candidate = editing.candidates.find(
+                            (item) => item.id === manualTargetId,
+                          );
+                          if (!candidate) return;
+                          const relationship = {
+                            targetId: candidate.id,
+                            targetSlug: candidate.slug,
+                            targetQuestion: candidate.questionText,
+                            type: "RELATED_TO" as const,
+                            confidence: 0.7,
+                            rationale:
+                              "Manually connected by an editor based on the question catalogue.",
+                          };
+                          setRelationshipSuggestions((current) => [
+                            ...current,
+                            relationship,
+                          ]);
+                          setApprovedRelationships((current) =>
+                            new Set(current).add(
+                              `${relationship.targetId}:${relationship.type}`,
+                            ),
+                          );
+                          setManualTargetId("");
+                        }}
+                      >
+                        Add connection
+                      </button>
+                    </div>
                     {relationshipSuggestions.length ? (
                       relationshipSuggestions.map((relationship) => {
                         const key = `${relationship.targetId}:${relationship.type}`;
@@ -1055,6 +1154,101 @@ export function EditorialWorkspace({
                                 {Math.round(relationship.confidence * 100)}%
                                 confidence · {relationship.rationale}
                               </small>
+                              <label>
+                                Relationship type
+                                <select
+                                  value={relationship.type}
+                                  onChange={(event) => {
+                                    const nextType = event.target
+                                      .value as typeof relationship.type;
+                                    setRelationshipSuggestions((current) =>
+                                      current.map((item) =>
+                                        item === relationship
+                                          ? { ...item, type: nextType }
+                                          : item,
+                                      ),
+                                    );
+                                    setApprovedRelationships((current) => {
+                                      const next = new Set(current);
+                                      next.delete(key);
+                                      next.add(
+                                        `${relationship.targetId}:${nextType}`,
+                                      );
+                                      return next;
+                                    });
+                                  }}
+                                >
+                                  {Object.entries(relationshipLabels).map(
+                                    ([value, label]) => (
+                                      <option key={value} value={value}>
+                                        {label}
+                                      </option>
+                                    ),
+                                  )}
+                                </select>
+                              </label>
+                              <label>
+                                Confidence (
+                                {Math.round(relationship.confidence * 100)}%)
+                                <input
+                                  type="range"
+                                  min="0"
+                                  max="1"
+                                  step="0.05"
+                                  value={relationship.confidence}
+                                  onChange={(event) =>
+                                    setRelationshipSuggestions((current) =>
+                                      current.map((item) =>
+                                        item === relationship
+                                          ? {
+                                              ...item,
+                                              confidence: Number(
+                                                event.target.value,
+                                              ),
+                                            }
+                                          : item,
+                                      ),
+                                    )
+                                  }
+                                />
+                              </label>
+                              <label>
+                                Editorial rationale
+                                <textarea
+                                  rows={2}
+                                  value={relationship.rationale}
+                                  onChange={(event) =>
+                                    setRelationshipSuggestions((current) =>
+                                      current.map((item) =>
+                                        item === relationship
+                                          ? {
+                                              ...item,
+                                              rationale: event.target.value,
+                                            }
+                                          : item,
+                                      ),
+                                    )
+                                  }
+                                />
+                              </label>
+                              <button
+                                type="button"
+                                className="text-button"
+                                onClick={() => {
+                                  setRelationshipSuggestions((current) =>
+                                    current.filter(
+                                      (item) => item !== relationship,
+                                    ),
+                                  );
+                                  setApprovedRelationships((current) => {
+                                    const next = new Set(current);
+                                    next.delete(key);
+                                    return next;
+                                  });
+                                }}
+                              >
+                                Remove connection
+                              </button>
                             </span>
                           </label>
                         );
