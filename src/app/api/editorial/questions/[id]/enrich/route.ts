@@ -1,5 +1,6 @@
 import { getCloudflareContext } from "@opennextjs/cloudflare";
 import { parseEnrichmentProposal } from "@/domain/enrichment";
+import { hasLikelyAnswerLeak } from "@/domain/question";
 import {
   editorialHeaders,
   hasEditorialAccess,
@@ -170,6 +171,56 @@ export async function POST(
       { error: "Question not found." },
       { status: 404, headers: editorialHeaders },
     );
+  if (
+    instruction &&
+    /context\s+summary|summary\s+for|write\s+(?:the\s+)?context/i.test(
+      instruction,
+    )
+  ) {
+    try {
+      const result = await env.AI.run(
+        "@cf/meta/llama-3.3-70b-instruct-fp8-fast",
+        {
+          messages: [
+            {
+              role: "system",
+              content:
+                "You are a cautious encyclopedic editor. Describe a question's history, framing, vocabulary, and significance without answering it.",
+            },
+            {
+              role: "user",
+              content: `Question: ${question.question_text}\nCategory: ${question.category_name}\nCurrent context: ${String(body.contextSummary ?? question.context_summary)}\nEditorial request: ${instruction}\nWrite a 180–350 word context summary. Do not answer the question. Return only JSON.`,
+            },
+          ],
+          response_format: {
+            type: "json_schema",
+            json_schema: {
+              type: "object",
+              properties: {
+                contextSummary: { type: "string", minLength: 150 },
+              },
+              required: ["contextSummary"],
+            },
+          },
+          max_tokens: 1200,
+        },
+      );
+      const raw = unwrap(result) as Record<string, unknown>;
+      const contextSummary = String(raw.contextSummary ?? "").trim();
+      if (contextSummary.length < 150 || hasLikelyAnswerLeak(contextSummary))
+        throw new Error(
+          "The generated summary was too short or may answer the question.",
+        );
+      return Response.json({ contextSummary }, { headers: editorialHeaders });
+    } catch (error) {
+      return Response.json(
+        {
+          error: `The context-summary proposal was rejected safely: ${error instanceof Error ? error.message : "Invalid response"}`,
+        },
+        { status: 422, headers: editorialHeaders },
+      );
+    }
+  }
   const prompt = `Create a private editorial enrichment proposal for Tambaya, a platform that publishes questions but NEVER answers them.
 
 Question: ${question.question_text}

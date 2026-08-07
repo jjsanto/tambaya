@@ -356,6 +356,7 @@ export function EditorialWorkspace({
         questions?: EditorialQuestion[];
         question?: EditorialDetail;
         proposal?: EnrichmentProposal;
+        contextSummary?: string;
         reviewCount?: number;
       };
       if (!response.ok)
@@ -668,6 +669,14 @@ export function EditorialWorkspace({
           }),
         },
       );
+      if (result.contextSummary) {
+        setEditorContext(result.contextSummary);
+        setAiInstruction("");
+        setMessage(
+          "AI context summary inserted into the working copy. Review it, then save the revision.",
+        );
+        return;
+      }
       if (!result.proposal)
         throw new Error("The enrichment service returned no proposal.");
       setProposal(result.proposal);
