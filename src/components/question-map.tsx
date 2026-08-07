@@ -16,23 +16,58 @@ const relationLabels: Record<RelationshipType, string> = {
   PRECEDES: "Precedes",
 };
 
-type PositionedNode = QuestionGraphNode & { x: number; y: number };
+type PositionedNode = QuestionGraphNode & { x: number; y: number; radius: number };
 
 function positionNodes(graph: QuestionGraph): PositionedNode[] {
-  const center = graph.nodes.find((node) => node.slug === graph.centerSlug);
-  const rings = [
-    graph.nodes.filter((node) => node.depth === 1),
-    graph.nodes.filter((node) => node.depth >= 2),
-  ];
-  const positioned: PositionedNode[] = center ? [{ ...center, x: 500, y: 310 }] : [];
-  rings.forEach((nodes, ringIndex) => {
-    const radiusX = ringIndex === 0 ? 230 : 405;
-    const radiusY = ringIndex === 0 ? 175 : 265;
-    nodes.forEach((node, index) => {
-      const angle = -Math.PI / 2 + (index * Math.PI * 2) / Math.max(nodes.length, 1) + ringIndex * 0.16;
-      positioned.push({ ...node, x: 500 + Math.cos(angle) * radiusX, y: 310 + Math.sin(angle) * radiusY });
-    });
+  const ordered = [...graph.nodes].sort((a, b) => a.depth - b.depth || b.connectionCount - a.connectionCount || a.slug.localeCompare(b.slug));
+  const positioned = ordered.map<PositionedNode>((node, index) => {
+    const center = node.slug === graph.centerSlug;
+    const angle = index * 2.399963229728653;
+    const initialDistance = center ? 0 : node.depth === 1 ? 190 : 320;
+    return {
+      ...node,
+      x: center ? 500 : 500 + Math.cos(angle) * initialDistance,
+      y: center ? 290 : 290 + Math.sin(angle) * initialDistance * 0.68,
+      radius: center ? 58 : Math.min(45, 31 + Math.sqrt(Math.max(1, node.connectionCount)) * 4),
+    };
   });
+  const bySlug = new Map(positioned.map((node) => [node.slug, node]));
+  for (let iteration = 0; iteration < 180; iteration += 1) {
+    const movement = new Map(positioned.map((node) => [node.slug, { x: 0, y: 0 }]));
+    for (let leftIndex = 0; leftIndex < positioned.length; leftIndex += 1) {
+      for (let rightIndex = leftIndex + 1; rightIndex < positioned.length; rightIndex += 1) {
+        const left = positioned[leftIndex], right = positioned[rightIndex];
+        let dx = right.x - left.x, dy = right.y - left.y;
+        const distance = Math.max(1, Math.hypot(dx, dy));
+        if (distance === 1) { dx = 1; dy = 0; }
+        const minimum = left.radius + right.radius + 35;
+        const force = Math.min(16, 8500 / (distance * distance) + Math.max(0, minimum - distance) * 0.16);
+        const fx = (dx / distance) * force, fy = (dy / distance) * force;
+        movement.get(left.slug)!.x -= fx; movement.get(left.slug)!.y -= fy;
+        movement.get(right.slug)!.x += fx; movement.get(right.slug)!.y += fy;
+      }
+    }
+    for (const edge of graph.edges) {
+      const source = bySlug.get(edge.sourceSlug), target = bySlug.get(edge.targetSlug);
+      if (!source || !target) continue;
+      const dx = target.x - source.x, dy = target.y - source.y;
+      const distance = Math.max(1, Math.hypot(dx, dy));
+      const desired = source.depth === 0 || target.depth === 0 ? 185 : 150;
+      const force = (distance - desired) * 0.025;
+      const fx = (dx / distance) * force, fy = (dy / distance) * force;
+      movement.get(source.slug)!.x += fx; movement.get(source.slug)!.y += fy;
+      movement.get(target.slug)!.x -= fx; movement.get(target.slug)!.y -= fy;
+    }
+    for (const node of positioned) {
+      if (node.slug === graph.centerSlug) { node.x = 500; node.y = 290; continue; }
+      const move = movement.get(node.slug)!;
+      const cooling = 1 - iteration / 220;
+      node.x += (move.x + (500 - node.x) * 0.0015) * cooling;
+      node.y += (move.y + (290 - node.y) * 0.0015) * cooling;
+      node.x = Math.max(node.radius + 30, Math.min(970 - node.radius, node.x));
+      node.y = Math.max(node.radius + 25, Math.min(555 - node.radius, node.y));
+    }
+  }
   return positioned;
 }
 
@@ -59,6 +94,7 @@ export function QuestionMap({ graph }: { graph: QuestionGraph }) {
   const [drag, setDrag] = useState<{ x: number; y: number; originX: number; originY: number } | null>(null);
   const selected = positions.get(selectedSlug) ?? positions.get(graph.centerSlug);
   const visibleEdges = graph.edges.filter((edge) => enabledTypes.includes(edge.type));
+  const selectedNeighbors = new Set(visibleEdges.flatMap((edge) => edge.sourceSlug === selectedSlug ? [edge.targetSlug] : edge.targetSlug === selectedSlug ? [edge.sourceSlug] : []));
 
   function toggleType(type: RelationshipType) {
     setEnabledTypes((current) => current.includes(type) ? current.filter((item) => item !== type) : [...current, type]);
@@ -103,7 +139,8 @@ export function QuestionMap({ graph }: { graph: QuestionGraph }) {
             {visibleEdges.map((edge, index) => {
               const source = positions.get(edge.sourceSlug), target = positions.get(edge.targetSlug);
               if (!source || !target) return null;
-              return <g className={`${styles.edge} ${styles[edge.type.toLowerCase()]}`} key={`${edge.sourceSlug}-${edge.targetSlug}-${edge.type}-${index}`}>
+              const highlighted = edge.sourceSlug === selectedSlug || edge.targetSlug === selectedSlug;
+              return <g className={`${styles.edge} ${styles[edge.type.toLowerCase()]} ${highlighted ? styles.highlighted : styles.subdued}`} key={`${edge.sourceSlug}-${edge.targetSlug}-${edge.type}-${index}`}>
                 <line x1={source.x} y1={source.y} x2={target.x} y2={target.y} markerEnd={edge.type === "RELATED_TO" ? undefined : "url(#map-arrow)"} />
                 <title>{relationLabels[edge.type]}</title>
               </g>;
@@ -111,12 +148,13 @@ export function QuestionMap({ graph }: { graph: QuestionGraph }) {
             {nodes.map((node) => {
               const center = node.slug === graph.centerSlug;
               const selectedNode = node.slug === selectedSlug;
-              const radius = center ? 76 : node.depth === 1 ? 58 : 45;
-              return <g key={node.slug} className={`${styles.node} ${styles[node.status.toLowerCase()]} ${center ? styles.center : ""} ${selectedNode ? styles.selected : ""}`} transform={`translate(${node.x} ${node.y})`} role="button" tabIndex={0} aria-label={`${node.questionText}, ${node.status.replaceAll("_", " ")}`} onClick={() => setSelectedSlug(node.slug)} onKeyDown={(event) => { if (event.key === "Enter" || event.key === " ") setSelectedSlug(node.slug); }}>
-                <circle r={radius} />
-                <text textAnchor="middle">{lines(node.questionText, center ? 24 : 19).map((line, index, all) => <tspan x="0" dy={index === 0 ? `${-(all.length - 1) * 0.55}em` : "1.1em"} key={`${line}-${index}`}>{line}</tspan>)}</text>
-                {!center && <text className={styles.count} textAnchor="middle" y={radius - 11}>{node.connectionCount} connection{node.connectionCount === 1 ? "" : "s"}</text>}
-              </g>;
+              const subdued = !selectedNode && !selectedNeighbors.has(node.slug);
+              return <a key={node.slug} href={`/questions/${node.slug}`} aria-current={center ? "page" : undefined} aria-label={`Open ${node.questionText}`} onMouseEnter={() => setSelectedSlug(node.slug)} onFocus={() => setSelectedSlug(node.slug)} onClick={(event) => { if (center) event.preventDefault(); }}>
+                <g className={`${styles.node} ${styles[node.status.toLowerCase()]} ${center ? styles.center : ""} ${selectedNode ? styles.selected : ""} ${subdued ? styles.subduedNode : ""}`} transform={`translate(${node.x} ${node.y})`}>
+                  <circle r={node.radius} />
+                  <text textAnchor="middle">{lines(node.questionText, center ? 21 : 15).map((line, index, all) => <tspan x="0" dy={index === 0 ? `${-(all.length - 1) * 0.55}em` : "1.1em"} key={`${line}-${index}`}>{line}</tspan>)}</text>
+                </g>
+              </a>;
             })}
           </g>
         </svg>
@@ -127,7 +165,7 @@ export function QuestionMap({ graph }: { graph: QuestionGraph }) {
           <Link href={`/questions/${selected.slug}`}>{selected.slug === graph.centerSlug ? "Return to this question" : "Open question"} →</Link>
         </aside>}
       </div>
-      <p className={styles.hint}>Drag to move · scroll or use the controls to zoom · select a question to preview it.</p>
+      <p className={styles.hint}>Choose any question circle to continue exploring · hover or focus to reveal its path · drag and zoom to move around.</p>
     </div>
   );
 }
