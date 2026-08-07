@@ -1,0 +1,13 @@
+UPDATE categories SET description='Questions about artistic expression, cultural memory, interpretation, creativity, and the works through which people understand human experience.' WHERE id='arts-humanities';
+UPDATE categories SET description='Questions about value, scarcity, markets, labour, inequality, incentives, and how societies organise the production and distribution of resources.' WHERE id='economics';
+UPDATE categories SET description='Questions about climate, ecosystems, geological change, biodiversity, and the evolving relationship between human activity and the planet.' WHERE id='environment-earth';
+UPDATE categories SET description='Questions about bodies, disease, wellbeing, care, diagnosis, public health, and the changing boundaries of medical knowledge.' WHERE id='health-medicine';
+UPDATE categories SET description='Questions about how past worlds are reconstructed, whose records endure, why events unfold, and how memory reshapes their meaning.' WHERE id='history';
+UPDATE categories SET description='Questions about meaning, translation, persuasion, symbols, conversation, and the ways language connects—and sometimes divides—people.' WHERE id='language-communication';
+UPDATE categories SET description='Questions about justice, rights, authority, institutions, citizenship, and how collective rules gain legitimacy and change over time.' WHERE id='law-governance';
+UPDATE categories SET description='Questions about number, structure, proof, infinity, uncertainty, and why abstract patterns illuminate so many different domains.' WHERE id='mathematics';
+UPDATE categories SET description='Questions about reality, knowledge, ethics, reason, meaning, and the assumptions that quietly shape every other field of inquiry.' WHERE id='philosophy';
+UPDATE categories SET description='Questions about thought, emotion, memory, identity, behaviour, consciousness, and how inner life can be studied from the outside.' WHERE id='psychology-mind';
+UPDATE categories SET description='Questions about the natural world, its underlying processes, the evidence used to study it, and the limits of explanation.' WHERE id='science';
+UPDATE categories SET description='Questions about culture, power, identity, institutions, communities, and the forces that hold social worlds together or pull them apart.' WHERE id='society';
+UPDATE categories SET description='Questions about computation, invention, automation, artificial intelligence, and how designed systems transform human choices and capabilities.' WHERE id='technology-ai';
