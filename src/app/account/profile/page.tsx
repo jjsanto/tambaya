@@ -35,7 +35,7 @@ export default async function ProfilePage({
   return (
     <div className="page shell profile-page">
       <nav className="breadcrumbs">
-        <Link href="/account">Your account</Link>
+        <Link href="/account">My Space</Link>
         <span>/</span>
         <span>Profile</span>
       </nav>

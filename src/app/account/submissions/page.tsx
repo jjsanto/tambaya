@@ -30,7 +30,7 @@ export default async function SubmissionsPage() {
   return (
     <div className="page shell">
       <nav className="breadcrumbs">
-        <Link href="/account">Your account</Link>
+        <Link href="/account">My Space</Link>
         <span>/</span>
         <span>Question submissions</span>
       </nav>

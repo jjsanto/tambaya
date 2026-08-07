@@ -4,7 +4,7 @@ import { redirect } from "next/navigation";
 import { getAuthDatabase, getCurrentUser } from "@/lib/auth";
 import { getBookmarks, getCollections } from "@/lib/library";
 
-export const metadata: Metadata = { title: "Your account" };
+export const metadata: Metadata = { title: "My Space" };
 type AccountParams = { welcome?: string; error?: string; securityError?: string; passwordStep?: string };
 
 function securityMessage(code: string) { if (code === "current") return "The current password was not accepted."; if (code === "password") return "The new password must contain 10–128 characters."; if (code === "confirmation") return "The new password confirmation does not match."; if (code === "challenge") return "Password confirmation expired. Verify your current password again."; if (code === "delete-confirmation") return "Type your exact username to confirm account deletion."; return "The password was not accepted; the account was not deleted."; }
