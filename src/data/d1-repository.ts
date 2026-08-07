@@ -1,6 +1,6 @@
 import { slugifyQuestion, type AnswerStatus, type EditorialReview, type PublicQuestion, type QuestionReference, type RelationshipType, type StoryBlock, type TimelineEvent } from "@/domain/question";
 import type { D1DatabaseLike } from "@/types/cloudflare";
-import type { CategorySummary, QuestionFilters, QuestionRepository, QuestionRow, TagSummary } from "./repository";
+import type { CategorySummary, QuestionFilters, QuestionGraph, QuestionGraphNode, QuestionRepository, QuestionRow, TagSummary } from "./repository";
 
 type SectionRow = { section_type: keyof PublicQuestion["editorialReview"]; body: string; provenance: EditorialReview["provenance"]; reviewed_at: string; answer_leak_state: EditorialReview["answerLeakState"] };
 type TimelineRow = { display_date: string; title: string; description: string };
@@ -89,5 +89,29 @@ export class D1QuestionRepository implements QuestionRepository {
   async categories(): Promise<CategorySummary[]> { return (await this.db.prepare("SELECT c.slug,c.name,COUNT(q.id) count FROM categories c LEFT JOIN questions q ON q.category_id=c.id AND q.publication_state='PUBLISHED' GROUP BY c.id ORDER BY c.name").all<CategorySummary>()).results ?? []; }
   async tags(): Promise<TagSummary[]> { return (await this.db.prepare("SELECT t.slug,t.name,COUNT(qt.question_id) count FROM tags t JOIN question_tags qt ON qt.tag_id=t.id JOIN questions q ON q.id=qt.question_id AND q.publication_state='PUBLISHED' GROUP BY t.id ORDER BY count DESC,t.name LIMIT 80").all<TagSummary>()).results ?? []; }
   async related(slug: string) { const source = await this.findBySlug(slug); if (!source) return []; const edges = (await this.db.prepare("SELECT source_slug AS sourceSlug,target_slug AS targetSlug,relationship_type AS type FROM question_relationships WHERE verified=1 AND (source_question_id=? OR target_question_id=?) ORDER BY confidence DESC,created_at DESC").bind(source.id,source.id).all<{sourceSlug:string;targetSlug:string;type:import("@/domain/question").RelationshipType}>()).results ?? []; const related = await Promise.all(edges.map(async edge => ({ edge, question: await this.findBySlug(edge.sourceSlug === slug ? edge.targetSlug : edge.sourceSlug) }))); return related.filter((item): item is { edge: typeof edges[number]; question: PublicQuestion } => Boolean(item.question)); }
+  async graph(slug: string, depth: 1 | 2 = 2): Promise<QuestionGraph> {
+    const nodes = (await this.db.prepare(`WITH RECURSIVE neighborhood(id,depth) AS (
+      SELECT id,0 FROM questions WHERE slug=? AND publication_state='PUBLISHED'
+      UNION
+      SELECT CASE WHEN r.source_question_id=n.id THEN r.target_question_id ELSE r.source_question_id END,n.depth+1
+      FROM neighborhood n JOIN question_relationships r ON r.verified=1 AND (r.source_question_id=n.id OR r.target_question_id=n.id)
+      WHERE n.depth<?
+    ), nearest AS (SELECT id,MIN(depth) depth FROM neighborhood GROUP BY id)
+    SELECT q.id,q.slug,q.question_text questionText,COALESCE(c.name,q.category_name) category,
+      q.verified_status status,nearest.depth,
+      (SELECT COUNT(*) FROM question_relationships cr WHERE cr.verified=1 AND (cr.source_question_id=q.id OR cr.target_question_id=q.id)) connectionCount
+    FROM nearest JOIN questions q ON q.id=nearest.id LEFT JOIN categories c ON c.id=q.category_id
+    WHERE q.publication_state='PUBLISHED' ORDER BY nearest.depth,connectionCount DESC,q.question_text LIMIT 24`)
+      .bind(slug, depth)
+      .all<QuestionGraphNode>()).results ?? [];
+    if (!nodes.length) return { centerSlug: slug, nodes: [], edges: [] };
+    const slugs = nodes.map((node) => node.slug);
+    const placeholders = slugs.map(() => "?").join(",");
+    const edges = (await this.db.prepare(`SELECT source_slug sourceSlug,target_slug targetSlug,relationship_type type
+      FROM question_relationships WHERE verified=1 AND source_slug IN (${placeholders}) AND target_slug IN (${placeholders})
+      ORDER BY confidence DESC,created_at`).bind(...slugs, ...slugs)
+      .all<QuestionGraph["edges"][number]>()).results ?? [];
+    return { centerSlug: slug, nodes, edges };
+  }
   async createDraft(input: { questionText: string; claimedStatus: AnswerStatus; category: string; contextSummary: string }) { const id = crypto.randomUUID(); const slug = slugifyQuestion(input.questionText); await this.db.prepare("INSERT INTO questions (id,question_text,slug,publication_state,claimed_status,verification_state,category_name,context_summary,public_json) VALUES (?,?,?,'DRAFT',?,'PENDING',?,?,'{}')").bind(id,input.questionText,slug,input.claimedStatus,input.category,input.contextSummary).run(); await this.db.prepare("INSERT INTO question_content_sections (id,question_id,section_type,body,provenance,publication_state,answer_leak_state,position) VALUES (?,?, 'SUMMARY',?,'PUBLISHER','DRAFT','PENDING',0)").bind(crypto.randomUUID(),id,input.contextSummary).run(); return { id, slug, publicationState: "DRAFT" as const }; }
 }

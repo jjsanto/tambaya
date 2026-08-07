@@ -8,6 +8,7 @@ import { getQuestionRepository } from "@/data/question-service";
 import { getAuthDatabase, getCurrentUser } from "@/lib/auth";
 import { getCollections, type UserCollection } from "@/lib/library";
 import { QuestionViewTracker } from "@/components/question-view-tracker";
+import { QuestionMap } from "@/components/question-map";
 export const dynamic = "force-dynamic";
 export async function generateMetadata({
   params,
@@ -27,8 +28,9 @@ export default async function QuestionPage({
   const repository = await getQuestionRepository();
   const question = await repository.findBySlug((await params).slug);
   if (!question) notFound();
-  const [related, user] = await Promise.all([
+  const [related, graph, user] = await Promise.all([
     repository.related(question.slug),
+    repository.graph(question.slug, 2),
     getCurrentUser(),
   ]);
   let bookmarked = false;
@@ -282,16 +284,17 @@ export default async function QuestionPage({
           </div>
         </div>
         {related.length ? (
-          <div className="question-grid">
-            {related.map(({ question: q, edge }) => (
-              <div key={q.id} className="related-wrap">
-                <span className="relation">
-                  {edge.type.replaceAll("_", " ")}
-                </span>
-                <QuestionCard question={q} />
-              </div>
-            ))}
-          </div>
+          <>
+            <QuestionMap graph={graph} />
+            <div className="question-grid">
+              {related.map(({ question: q, edge }) => (
+                <div key={q.id} className="related-wrap">
+                  <span className="relation">{edge.type.replaceAll("_", " ")}</span>
+                  <QuestionCard question={q} />
+                </div>
+              ))}
+            </div>
+          </>
         ) : (
           <div className="empty relationship-empty">
             <h3>No verified relationships yet.</h3>
