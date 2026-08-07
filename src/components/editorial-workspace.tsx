@@ -33,6 +33,9 @@ type EditorialDetail = EditorialQuestion & {
   hasPendingRevision: boolean;
   revisionDraftUpdatedAt: string | null;
   revisions: { id: string; action: string; created_at: string }[];
+  relationships: (EnrichmentProposal["relationships"][number] & {
+    verified: number;
+  })[];
 };
 
 const labels: Record<string, string> = {
@@ -312,6 +315,9 @@ export function EditorialWorkspace({
   const [approvedRelationships, setApprovedRelationships] = useState<
     Set<string>
   >(new Set());
+  const [relationshipSuggestions, setRelationshipSuggestions] = useState<
+    EnrichmentProposal["relationships"]
+  >([]);
   const [scope, setScope] = useState<"review" | "archive">("review");
   const [workspaceMode, setWorkspaceMode] = useState<"review" | "create">(
     "review",
@@ -512,7 +518,16 @@ export function EditorialWorkspace({
       setEditorContext(detail.context_summary);
       setEditorSections(detail.sections.length ? detail.sections : defaults);
       setPreviewStory(false);
-      setApprovedRelationships(new Set());
+      setRelationshipSuggestions(detail.relationships ?? []);
+      setApprovedRelationships(
+        new Set(
+          (detail.relationships ?? [])
+            .filter((relationship) => relationship.verified)
+            .map(
+              (relationship) => `${relationship.targetId}:${relationship.type}`,
+            ),
+        ),
+      );
       setProposal(null);
       setMessage("Story editor opened.");
     } catch (error) {
@@ -639,6 +654,7 @@ export function EditorialWorkspace({
       if (!result.proposal)
         throw new Error("The enrichment service returned no proposal.");
       setProposal(result.proposal);
+      setRelationshipSuggestions(result.proposal.relationships);
       setApprovedRelationships(new Set());
       setEditorContext(result.proposal.contextSummary);
       setEditorSections(result.proposal.sections);
@@ -669,12 +685,11 @@ export function EditorialWorkspace({
               : "save_story",
           contextSummary: editorContext,
           sections: editorSections,
-          relationships:
-            proposal?.relationships.filter((relationship) =>
-              approvedRelationships.has(
-                `${relationship.targetId}:${relationship.type}`,
-              ),
-            ) ?? [],
+          relationships: relationshipSuggestions.filter((relationship) =>
+            approvedRelationships.has(
+              `${relationship.targetId}:${relationship.type}`,
+            ),
+          ),
         }),
       });
       setMessage("Story sections saved as a new private revision.");
@@ -706,12 +721,11 @@ export function EditorialWorkspace({
           action: "save_revision",
           contextSummary: editorContext,
           sections: editorSections,
-          relationships:
-            proposal?.relationships.filter((relationship) =>
-              approvedRelationships.has(
-                `${relationship.targetId}:${relationship.type}`,
-              ),
-            ) ?? [],
+          relationships: relationshipSuggestions.filter((relationship) =>
+            approvedRelationships.has(
+              `${relationship.targetId}:${relationship.type}`,
+            ),
+          ),
         }),
       });
       await api(`/api/editorial/questions/${editing.id}`, {
@@ -1005,55 +1019,54 @@ export function EditorialWorkspace({
                       <small>{proposal.warnings.join(" ")}</small>
                     </aside>
                   )}
-                  {proposal && (
-                    <section className="relationship-proposals">
-                      <div>
-                        <span className="eyebrow">Question graph</span>
-                        <h4>Approve proposed connections</h4>
-                        <p>
-                          Suggestions are unchecked by default. Only selected
-                          relationships are saved to the navigable question map.
-                        </p>
-                      </div>
-                      {proposal.relationships.length ? (
-                        proposal.relationships.map((relationship) => {
-                          const key = `${relationship.targetId}:${relationship.type}`;
-                          return (
-                            <label key={key}>
-                              <input
-                                type="checkbox"
-                                checked={approvedRelationships.has(key)}
-                                onChange={(event) =>
-                                  setApprovedRelationships((current) => {
-                                    const next = new Set(current);
-                                    if (event.target.checked) next.add(key);
-                                    else next.delete(key);
-                                    return next;
-                                  })
-                                }
-                              />
-                              <span>
-                                <strong>
-                                  This question{" "}
-                                  {relationshipLabels[relationship.type]} “
-                                  {relationship.targetQuestion}”
-                                </strong>
-                                <small>
-                                  {Math.round(relationship.confidence * 100)}%
-                                  confidence · {relationship.rationale}
-                                </small>
-                              </span>
-                            </label>
-                          );
-                        })
-                      ) : (
-                        <p className="empty compact-empty">
-                          No defensible connections were proposed from the
-                          current catalogue.
-                        </p>
-                      )}
-                    </section>
-                  )}
+                  <section className="relationship-proposals">
+                    <div>
+                      <span className="eyebrow">Question graph</span>
+                      <h4>Approve proposed connections</h4>
+                      <p>
+                        Suggestions are unchecked by default. Only selected
+                        relationships are saved to the navigable question map.
+                      </p>
+                    </div>
+                    {relationshipSuggestions.length ? (
+                      relationshipSuggestions.map((relationship) => {
+                        const key = `${relationship.targetId}:${relationship.type}`;
+                        return (
+                          <label key={key}>
+                            <input
+                              type="checkbox"
+                              checked={approvedRelationships.has(key)}
+                              onChange={(event) =>
+                                setApprovedRelationships((current) => {
+                                  const next = new Set(current);
+                                  if (event.target.checked) next.add(key);
+                                  else next.delete(key);
+                                  return next;
+                                })
+                              }
+                            />
+                            <span>
+                              <strong>
+                                This question{" "}
+                                {relationshipLabels[relationship.type]} “
+                                {relationship.targetQuestion}”
+                              </strong>
+                              <small>
+                                {Math.round(relationship.confidence * 100)}%
+                                confidence · {relationship.rationale}
+                              </small>
+                            </span>
+                          </label>
+                        );
+                      })
+                    ) : (
+                      <p className="empty compact-empty">
+                        No connection proposals are loaded yet. Run Enrich
+                        question to compare this question with the published
+                        catalogue.
+                      </p>
+                    )}
+                  </section>
                   <fieldset>
                     <legend>Context summary</legend>
                     <label>

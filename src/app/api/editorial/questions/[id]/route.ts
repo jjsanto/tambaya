@@ -55,6 +55,14 @@ type ApprovedRelationship = {
   type: RelationshipType;
   confidence: number;
 };
+type RelationshipRow = {
+  targetId: string;
+  targetSlug: string;
+  targetQuestion: string;
+  type: RelationshipType;
+  confidence: number;
+  verified: number;
+};
 
 function normalizeBlocks(value: unknown): StoryBlock[] | null {
   if (!Array.isArray(value) || value.length > 40) return null;
@@ -172,6 +180,7 @@ export async function GET(
     blocksResult,
     revisionsResult,
     revisionDraft,
+    relationshipsResult,
   ] = await Promise.all([
     env.DB.prepare(
       "SELECT id,section_key,kicker,title,position FROM question_story_sections WHERE question_id=? ORDER BY position",
@@ -198,6 +207,11 @@ export async function GET(
     )
       .bind(id)
       .first<RevisionDraftRow>(),
+    env.DB.prepare(
+      "SELECT r.target_question_id targetId,r.target_slug targetSlug,q.question_text targetQuestion,r.relationship_type type,COALESCE(r.confidence,0) confidence,r.verified FROM question_relationships r JOIN questions q ON q.id=r.target_question_id WHERE r.source_question_id=? AND r.created_by='AI_ASSISTED' ORDER BY r.verified DESC,r.confidence DESC",
+    )
+      .bind(id)
+      .all<RelationshipRow>(),
   ]);
   const paragraphs = paragraphsResult.results ?? [];
   const blocks = blocksResult.results ?? [];
@@ -242,6 +256,12 @@ export async function GET(
           workingCopy?.contextSummary ?? question.context_summary,
         sections: workingSections ?? liveSections,
         liveSections,
+        relationships: (relationshipsResult.results ?? []).map(
+          (relationship) => ({
+            ...relationship,
+            rationale: "Previously reviewed editorial connection.",
+          }),
+        ),
         hasPendingRevision: !!revisionDraft,
         revisionDraftUpdatedAt: revisionDraft?.updated_at ?? null,
         revisions: revisionsResult.results ?? [],
