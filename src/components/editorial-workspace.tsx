@@ -326,6 +326,7 @@ export function EditorialWorkspace({
   >([]);
   const [manualTargetId, setManualTargetId] = useState("");
   const [aiInstruction, setAiInstruction] = useState("");
+  const [editorVerifiedStatus, setEditorVerifiedStatus] = useState("OPEN");
   const [scope, setScope] = useState<"review" | "archive">("review");
   const [workspaceMode, setWorkspaceMode] = useState<"review" | "create">(
     "review",
@@ -529,6 +530,9 @@ export function EditorialWorkspace({
       setPreviewStory(false);
       setRelationshipSuggestions(detail.relationships ?? []);
       setManualTargetId("");
+      setEditorVerifiedStatus(
+        detail.verified_status ?? detail.claimed_status ?? "OPEN",
+      );
       setApprovedRelationships(
         new Set(
           (detail.relationships ?? [])
@@ -800,6 +804,55 @@ export function EditorialWorkspace({
         error instanceof Error
           ? error.message
           : "Unable to discard the revision.",
+      );
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function saveAndPublish() {
+    if (
+      !editing ||
+      editing.publication_state !== "DRAFT" ||
+      !window.confirm(
+        `Save the working copy and publish “${editing.question_text}” with status ${labels[editorVerifiedStatus]}?`,
+      )
+    )
+      return;
+    setBusy(true);
+    try {
+      await api(`/api/editorial/questions/${editing.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action: "save_story",
+          contextSummary: editorContext,
+          sections: editorSections,
+          relationships: relationshipSuggestions.filter((relationship) =>
+            approvedRelationships.has(
+              `${relationship.targetId}:${relationship.type}`,
+            ),
+          ),
+        }),
+      });
+      await api(`/api/editorial/questions/${editing.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action: "publish",
+          verifiedStatus: editorVerifiedStatus,
+        }),
+      });
+      setMessage(
+        "The visible working copy was saved, reviewed, and published.",
+      );
+      setEditing(null);
+      await load();
+    } catch (error) {
+      setMessage(
+        error instanceof Error
+          ? error.message
+          : "Unable to save and publish the question.",
       );
     } finally {
       setBusy(false);
@@ -1388,6 +1441,21 @@ export function EditorialWorkspace({
                       Add section
                     </button>
                     <span>
+                      {editing.publication_state === "DRAFT" && (
+                        <select
+                          aria-label="Verified answer status"
+                          value={editorVerifiedStatus}
+                          onChange={(event) =>
+                            setEditorVerifiedStatus(event.target.value)
+                          }
+                        >
+                          <option value="OPEN">Open</option>
+                          <option value="PARTIALLY_ANSWERED">
+                            Partially answered
+                          </option>
+                          <option value="ANSWERED">Answered</option>
+                        </select>
+                      )}
                       {editing.publication_state === "PUBLISHED" && (
                         <button
                           className="button ghost small"
@@ -1399,8 +1467,20 @@ export function EditorialWorkspace({
                         </button>
                       )}
                       <button className="button small" disabled={busy}>
-                        Save revision
+                        {editing.publication_state === "DRAFT"
+                          ? "Save Story"
+                          : "Save revision"}
                       </button>
+                      {editing.publication_state === "DRAFT" && (
+                        <button
+                          className="button small publish-revision"
+                          type="button"
+                          disabled={busy}
+                          onClick={() => void saveAndPublish()}
+                        >
+                          Save &amp; publish
+                        </button>
+                      )}
                       {editing.publication_state === "PUBLISHED" &&
                         editing.hasPendingRevision && (
                           <button
