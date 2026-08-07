@@ -2,12 +2,14 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { getAuthDatabase, getCurrentUser } from "@/lib/auth";
-import { ProfileAvatar, avatarPresets } from "@/components/profile-avatar";
+import { ProfileAvatar } from "@/components/profile-avatar";
+import { GenderedAvatarPicker } from "@/components/gendered-avatar-picker";
 export const metadata: Metadata = { title: "Your profile" };
 type Profile = {
   username: string;
   bio: string;
   interests: string;
+  gender: "FEMALE" | "MALE" | "UNSPECIFIED";
   avatar_type: string;
   avatar_value: string;
 };
@@ -23,7 +25,7 @@ export default async function ProfilePage({
   const [profile, query] = await Promise.all([
     db
       .prepare(
-        "SELECT username,bio,interests,avatar_type,avatar_value FROM users WHERE id=?",
+        "SELECT username,bio,interests,gender,avatar_type,avatar_value FROM users WHERE id=?",
       )
       .bind(user.id)
       .first<Profile>(),
@@ -83,38 +85,12 @@ export default async function ProfilePage({
         </fieldset>
         <fieldset>
           <legend>Choose an avatar</legend>
-          <div className="avatar-options">
-            {profile.avatar_type === "UPLOAD" && (
-              <label>
-                <input type="radio" name="preset" value="" defaultChecked />
-                <ProfileAvatar
-                  type={profile.avatar_type}
-                  value={profile.avatar_value}
-                  username={profile.username}
-                />
-                <strong>Current photo</strong>
-              </label>
-            )}
-            {avatarPresets.map((avatar) => (
-              <label key={avatar.id}>
-                <input
-                  type="radio"
-                  name="preset"
-                  value={avatar.id}
-                  defaultChecked={
-                    profile.avatar_type !== "UPLOAD" &&
-                    profile.avatar_value === avatar.id
-                  }
-                />
-                <span
-                  className={`profile-avatar preset avatar-${avatar.id} medium`}
-                >
-                  {avatar.symbol}
-                </span>
-                <strong>{avatar.label}</strong>
-              </label>
-            ))}
-          </div>
+          <GenderedAvatarPicker
+            gender={profile.gender}
+            avatarType={profile.avatar_type}
+            avatarValue={profile.avatar_value}
+            username={profile.username}
+          />
           <label className="profile-photo">
             Or upload a photo
             <input

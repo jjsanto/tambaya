@@ -31,6 +31,10 @@ export async function POST(request: Request) {
     .join(", ")
     .slice(0, 600);
   const preset = String(data.get("preset") ?? "");
+  const requestedGender = String(data.get("gender") ?? "UNSPECIFIED");
+  const gender = ["FEMALE", "MALE", "UNSPECIFIED"].includes(requestedGender)
+    ? requestedGender
+    : "UNSPECIFIED";
   const file = data.get("photo");
   const current = await env.DB.prepare(
     "SELECT avatar_type,avatar_value FROM users WHERE id=?",
@@ -39,7 +43,10 @@ export async function POST(request: Request) {
     .first<{ avatar_type: string; avatar_value: string }>();
   let avatarType = current?.avatar_type ?? "PRESET",
     avatarValue = current?.avatar_value ?? "explorer";
-  if (avatarPresets.some((item) => item.id === preset)) {
+  const selectedPreset = avatarPresets.find((item) => item.id === preset);
+  if (selectedPreset && gender !== "UNSPECIFIED" && selectedPreset.gender !== gender)
+    return new Response("Choose an avatar that matches the selected gender.", { status: 400 });
+  if (selectedPreset) {
     avatarType = "PRESET";
     avatarValue = preset;
   }
@@ -72,8 +79,8 @@ export async function POST(request: Request) {
   }
   const statements = [
     env.DB.prepare(
-      "UPDATE users SET bio=?,interests=?,avatar_type=?,avatar_value=?,updated_at=CURRENT_TIMESTAMP WHERE id=?",
-    ).bind(bio, interests, avatarType, avatarValue, user.id),
+      "UPDATE users SET bio=?,interests=?,gender=?,avatar_type=?,avatar_value=?,updated_at=CURRENT_TIMESTAMP WHERE id=?",
+    ).bind(bio, interests, gender, avatarType, avatarValue, user.id),
   ];
   if (newKey)
     statements.push(
