@@ -1,5 +1,6 @@
 import {
   answerStatuses,
+  countWords,
   hasLikelyAnswerLeak,
   isRelationshipType,
   type AnswerStatus,
@@ -48,7 +49,11 @@ function safeUrl(value: unknown) {
 export function parseEnrichmentProposal(value: unknown): EnrichmentProposal {
   const candidate = value as Record<string, unknown>;
   const contextSummary = clean(candidate.contextSummary);
-  if (contextSummary.length < 150 || hasLikelyAnswerLeak(contextSummary))
+  if (
+    contextSummary.length < 150 ||
+    countWords(contextSummary) > 60 ||
+    hasLikelyAnswerLeak(contextSummary)
+  )
     throw new Error(
       "AI context summary is too short or may answer the question.",
     );

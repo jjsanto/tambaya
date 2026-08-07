@@ -1,6 +1,6 @@
 import { getCloudflareContext } from "@opennextjs/cloudflare";
 import { parseEnrichmentProposal } from "@/domain/enrichment";
-import { hasLikelyAnswerLeak } from "@/domain/question";
+import { countWords, hasLikelyAnswerLeak } from "@/domain/question";
 import {
   editorialHeaders,
   hasEditorialAccess,
@@ -189,7 +189,7 @@ export async function POST(
             },
             {
               role: "user",
-              content: `Question: ${question.question_text}\nCategory: ${question.category_name}\nCurrent context: ${String(body.contextSummary ?? question.context_summary)}\nEditorial request: ${instruction}\nWrite a 180–350 word context summary. Do not answer the question. Return only JSON.`,
+              content: `Question: ${question.question_text}\nCategory: ${question.category_name}\nCurrent context: ${String(body.contextSummary ?? question.context_summary)}\nEditorial request: ${instruction}\nWrite a concise 45–60 word context summary. Do not answer the question. Return only JSON.`,
             },
           ],
           response_format: {
@@ -207,7 +207,11 @@ export async function POST(
       );
       const raw = unwrap(result) as Record<string, unknown>;
       const contextSummary = String(raw.contextSummary ?? "").trim();
-      if (contextSummary.length < 150 || hasLikelyAnswerLeak(contextSummary))
+      if (
+        contextSummary.length < 150 ||
+        countWords(contextSummary) > 60 ||
+        hasLikelyAnswerLeak(contextSummary)
+      )
         throw new Error(
           "The generated summary was too short or may answer the question.",
         );
@@ -232,7 +236,7 @@ Current unsaved working copy: ${JSON.stringify({ contextSummary: body.contextSum
 Editorial change request: ${instruction || "Create a comprehensive general enrichment."}
 Existing question candidates: ${JSON.stringify(candidatesResult.results ?? [])}
 
-Write a 180–350 word context summary plus 5–8 encyclopedic Story sections about the question's origins, changing vocabulary, history of inquiry, significance, appearances across fields, methodological difficulties, and lines of further inquiry. Each section paragraph must exceed 120 words. Explain the QUESTION and its history; do not state, imply, or summarize an answer. Never use phrases such as “the answer is”, “this proves”, or “therefore the answer”. The summary, lists, and callouts must also remain contextual.
+Write a concise 45–60 word context summary plus 5–8 encyclopedic Story sections about the question's origins, changing vocabulary, history of inquiry, significance, appearances across fields, methodological difficulties, and lines of further inquiry. Each section paragraph must exceed 120 words. Explain the QUESTION and its history; do not state, imply, or summarize an answer. Never use phrases such as “the answer is”, “this proves”, or “therefore the answer”. The summary, lists, and callouts must also remain contextual.
 
 Suggest an answer-status classification only as metadata about whether sufficiently established answers exist outside Tambaya. The rationale must describe verification scope and uncertainty without disclosing any answer. Treat statusConfidence as LOW unless the supplied source records support a stronger assessment. Source leads must be credible HTTPS references for an editor to verify; never fabricate article titles or URLs.
 

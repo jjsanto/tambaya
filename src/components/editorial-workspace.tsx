@@ -1,7 +1,7 @@
 "use client";
 
 import { FormEvent, useCallback, useEffect, useState } from "react";
-import type { StoryBlock } from "@/domain/question";
+import { countWords, type StoryBlock } from "@/domain/question";
 import type { EnrichmentProposal } from "@/domain/enrichment";
 import { StoryBlocks } from "@/components/story-blocks";
 
@@ -1364,8 +1364,8 @@ export function EditorialWorkspace({
                         placeholder="At least 150 answer-free characters describing the question's history, framing, and significance."
                       />
                       <small>
-                        {editorContext.length} characters · required before
-                        publication
+                        {countWords(editorContext)}/60 words · at least 150
+                        characters and no more than 60 words
                       </small>
                     </label>
                   </fieldset>

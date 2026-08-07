@@ -2,7 +2,11 @@
 import { useState, type FormEvent } from "react";
 import { useRouter } from "next/navigation";
 import { StoryBlocks } from "./story-blocks";
-import type { AnswerStatus, StoryBlock } from "@/domain/question";
+import {
+  countWords,
+  type AnswerStatus,
+  type StoryBlock,
+} from "@/domain/question";
 import type { SubmissionDetail, SubmissionSection } from "@/lib/submissions";
 import { hasEncyclopedicContext } from "@/lib/submissions";
 import { QuestionMaturity } from "./question-maturity";
@@ -752,8 +756,8 @@ export function SubmissionEditor({
                     placeholder="Explain the history, framing, and importance of the question without answering it."
                   />
                   <small>
-                    {contextSummary.length}/5000 · 150 characters advances the
-                    question to Context
+                    {countWords(contextSummary)}/60 words · 150 characters
+                    advances the question to Context
                   </small>
                 </label>
               </fieldset>

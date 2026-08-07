@@ -1,4 +1,5 @@
 import {
+  countWords,
   hasLikelyAnswerLeak,
   isAnswerStatus,
   slugifyQuestion,
@@ -205,6 +206,8 @@ export function validateForSubmission(input: SubmissionInput) {
     return "If you add a motivation, write at least 20 characters so editors understand why the question matters to you.";
   if (input.contextSummary && hasLikelyAnswerLeak(input.contextSummary))
     return "Keep the context focused on the question without answering it.";
+  if (countWords(input.contextSummary) > 60)
+    return "Keep the context summary to 60 words or fewer.";
   return null;
 }
 

@@ -1,5 +1,6 @@
 import { getCloudflareContext } from "@opennextjs/cloudflare";
 import {
+  countWords,
   hasLikelyAnswerLeak,
   isAnswerStatus,
   isRelationshipType,
@@ -438,11 +439,15 @@ export async function PATCH(
         { status: 409 },
       );
     const contextSummary = String(body.contextSummary ?? "").trim();
-    if (contextSummary.length < 150 || hasLikelyAnswerLeak(contextSummary))
+    if (
+      contextSummary.length < 150 ||
+      countWords(contextSummary) > 60 ||
+      hasLikelyAnswerLeak(contextSummary)
+    )
       return Response.json(
         {
           error:
-            "The context summary must contain at least 150 characters and remain answer-free.",
+            "The context summary must contain at least 150 characters, remain answer-free, and use no more than 60 words.",
         },
         { status: 400 },
       );
@@ -717,12 +722,13 @@ export async function PATCH(
     if (
       !revised.contextSummary ||
       revised.contextSummary.length < 150 ||
+      countWords(revised.contextSummary) > 60 ||
       hasLikelyAnswerLeak(revised.contextSummary)
     )
       return Response.json(
         {
           error:
-            "The revision context summary must contain at least 150 characters and remain answer-free.",
+            "The revision context summary must contain at least 150 characters, remain answer-free, and use no more than 60 words.",
         },
         { status: 400 },
       );
@@ -908,12 +914,13 @@ export async function PATCH(
     );
   if (
     draft.context_summary.trim().length < 150 ||
+    countWords(draft.context_summary) > 60 ||
     hasLikelyAnswerLeak(draft.context_summary)
   )
     return Response.json(
       {
         error:
-          "The context summary must contain at least 150 characters and remain answer-free.",
+          "The context summary must contain at least 150 characters, remain answer-free, and use no more than 60 words.",
       },
       { status: 400 },
     );
