@@ -27,7 +27,7 @@ export default async function ReviewSubmissionPage({ params }: { params: Promise
   const comments = commentsResult.results ?? [];
   return <div className="page shell review-page">
     <nav className="breadcrumbs"><Link href="/editorial?login=success">Editorial workspace</Link><span>/</span><span>Submission review</span></nav>
-    <header className="page-intro"><span className="eyebrow">{submission.state.replaceAll("_", " ")} · by {publisher?.username ?? "former publisher"}</span><h1>{submission.questionText}</h1><p>{submission.contextSummary}</p></header>
+    <header className="page-intro"><span className="eyebrow">{submission.state.replaceAll("_", " ")} · by {publisher?.username ?? "former publisher"}</span><h1>{submission.questionText}</h1>{submission.motivation&&<div className="notice"><strong>Why the publisher is asking:</strong> {submission.motivation}</div>}{submission.contextSummary&&<p>{submission.contextSummary}</p>}</header>
     {submission.state === "SUBMITTED" && <form className="review-decision" action={`/api/editorial/questions/${id}/comments`} method="post">
       <input type="hidden" name="action" value="request_changes" />
       <div><span className="eyebrow">Editorial decision</span><h2>Return this question for revision</h2><p>Summarize the changes required. The publisher will regain editing access, see this note and all inline comments, and can resubmit the revised Story.</p></div>
@@ -40,7 +40,7 @@ export default async function ReviewSubmissionPage({ params }: { params: Promise
       <label>Reason for rejection<textarea name="reviewNotes" required minLength={10} maxLength={1000} rows={4} placeholder="Explain clearly why this question cannot be accepted." /></label>
       <button className="button danger" type="submit">Reject question</button>
     </form>}
-    <div className="review-layout"><main>{submission.sections.map((section, sectionIndex) => <section className="review-section" key={section.key}>
+    <div className="review-layout"><main>{!submission.sections.length&&<div className="empty"><h2>This question is at the Asked stage.</h2><p>The publisher has not added an encyclopedic Story yet. Review its framing and motivation, then request enrichment if needed.</p></div>}{submission.sections.map((section, sectionIndex) => <section className="review-section" key={section.key}>
       <span className="eyebrow">{section.kicker}</span><h2>{section.title}</h2>
       {section.blocks.map((block, blockIndex) => {
         const blockComments = comments.filter(comment => comment.section_key === section.key && comment.block_position === blockIndex);

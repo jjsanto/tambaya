@@ -18,17 +18,22 @@ export default async function PublishPage() {
     <div className="page shell">
       <header className="page-intro">
         <span className="eyebrow">Publisher workspace</span>
-        <h1>Publish a question worth asking.</h1>
+        <h1>Ask now. Enrich over time.</h1>
         <p>
-          Build an encyclopedic Story around the question. Save privately,
-          preview your work, then submit it for editorial verification.
+          Begin with a clear question and, if you wish, why you are asking it.
+          Its context, sources, relationships, and verification can grow from
+          there.
         </p>
       </header>
       <div className="notice">
-        <strong>Remember:</strong> explain the question’s history, framing, and
-        significance—but do not answer it.
+        <strong>A question does not need to arrive fully formed.</strong> The
+        rich Story editor remains available whenever you are ready to add
+        context.
       </div>
-      <SubmissionEditor categories={categories} premium={user.plan === "PREMIUM"} />
+      <SubmissionEditor
+        categories={categories}
+        premium={user.plan === "PREMIUM"}
+      />
     </div>
   );
 }

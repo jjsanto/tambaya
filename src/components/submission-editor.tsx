@@ -4,6 +4,8 @@ import { useRouter } from "next/navigation";
 import { StoryBlocks } from "./story-blocks";
 import type { AnswerStatus, StoryBlock } from "@/domain/question";
 import type { SubmissionDetail, SubmissionSection } from "@/lib/submissions";
+import { hasEncyclopedicContext } from "@/lib/submissions";
+import { QuestionMaturity } from "./question-maturity";
 
 type Category = { id: string; name: string };
 const blankSections = (): SubmissionSection[] =>
@@ -63,16 +65,28 @@ function BlockEditor({
     try {
       const data = new FormData();
       data.set("image", file);
-      const response = await fetch("/api/uploads/image", { method: "POST", body: data });
-      const result = (await response.json()) as { url?: string; error?: string };
-      if (!response.ok || !result.url) throw new Error(result.error ?? "Upload failed.");
-      const previous=block.src.match(/^\/api\/uploads\/([a-f0-9-]{36}\.(?:jpg|png|webp|gif))$/)?.[1];
+      const response = await fetch("/api/uploads/image", {
+        method: "POST",
+        body: data,
+      });
+      const result = (await response.json()) as {
+        url?: string;
+        error?: string;
+      };
+      if (!response.ok || !result.url)
+        throw new Error(result.error ?? "Upload failed.");
+      const previous = block.src.match(
+        /^\/api\/uploads\/([a-f0-9-]{36}\.(?:jpg|png|webp|gif))$/,
+      )?.[1];
       change({
         ...block,
         src: result.url,
-        alt: block.alt || file.name.replace(/\.[^.]+$/, "").replaceAll(/[-_]+/g, " "),
+        alt:
+          block.alt ||
+          file.name.replace(/\.[^.]+$/, "").replaceAll(/[-_]+/g, " "),
       });
-      if(previous)void fetch(`/api/uploads/${previous}`,{method:"DELETE"});
+      if (previous)
+        void fetch(`/api/uploads/${previous}`, { method: "DELETE" });
     } catch (error) {
       setUploadError(error instanceof Error ? error.message : "Upload failed.");
     } finally {
@@ -80,7 +94,16 @@ function BlockEditor({
     }
   }
 
-  function removeBlock(){const key=block.type==="IMAGE"?block.src.match(/^\/api\/uploads\/([a-f0-9-]{36}\.(?:jpg|png|webp|gif))$/)?.[1]:null;if(key)void fetch(`/api/uploads/${key}`,{method:"DELETE"});remove();}
+  function removeBlock() {
+    const key =
+      block.type === "IMAGE"
+        ? block.src.match(
+            /^\/api\/uploads\/([a-f0-9-]{36}\.(?:jpg|png|webp|gif))$/,
+          )?.[1]
+        : null;
+    if (key) void fetch(`/api/uploads/${key}`, { method: "DELETE" });
+    remove();
+  }
 
   return (
     <article className="publisher-block">
@@ -138,10 +161,16 @@ function BlockEditor({
                 if (file) void uploadImage(file);
               }}
             />
-            <small>{uploading ? "Uploading…" : "JPEG, PNG, WebP or GIF · maximum 5 MB"}</small>
+            <small>
+              {uploading
+                ? "Uploading…"
+                : "JPEG, PNG, WebP or GIF · maximum 5 MB"}
+            </small>
             {uploadError && <span role="alert">{uploadError}</span>}
           </label>
-          {block.src.startsWith("/api/uploads/") && <p className="upload-complete">✓ Image uploaded</p>}
+          {block.src.startsWith("/api/uploads/") && (
+            <p className="upload-complete">✓ Image uploaded</p>
+          )}
           <label>
             Image URL
             <input
@@ -339,14 +368,15 @@ function BlockEditor({
 export function SubmissionEditor({
   categories,
   initial,
-  premium=false,
+  premium = false,
 }: {
   categories: Category[];
   initial?: SubmissionDetail;
-  premium?:boolean;
+  premium?: boolean;
 }) {
   const router = useRouter();
   const [questionText, setQuestionText] = useState(initial?.questionText ?? "");
+  const [motivation, setMotivation] = useState(initial?.motivation ?? "");
   const [categoryId, setCategoryId] = useState(
     initial?.categoryId ?? categories[0]?.id ?? "",
   );
@@ -361,19 +391,40 @@ export function SubmissionEditor({
     initial?.sections.length ? initial.sections : blankSections(),
   );
   const [preview, setPreview] = useState(false);
+  const [advanced, setAdvanced] = useState(
+    Boolean(
+      initial?.contextSummary ||
+        initial?.sections.some((section) =>
+          section.blocks.some(
+            (block) => block.type === "PARAGRAPH" && block.text.trim(),
+          ),
+        ),
+    ),
+  );
   const [busy, setBusy] = useState(false);
-  const [generating,setGenerating]=useState(false);
-  const [generationSeconds,setGenerationSeconds]=useState(0);
+  const [generating, setGenerating] = useState(false);
+  const [generationSeconds, setGenerationSeconds] = useState(0);
   const [message, setMessage] = useState(
     initial?.reviewNotes
       ? `Editorial note: ${initial.reviewNotes}`
       : "Drafts are private until you submit them for review.",
   );
   const locked =
-    initial?.state === "SUBMITTED" || initial?.state === "APPROVED" || initial?.state === "REJECTED";
+    initial?.state === "SUBMITTED" ||
+    initial?.state === "APPROVED" ||
+    initial?.state === "REJECTED";
+  const maturity = {
+    asked:
+      questionText.trim().length >= 10 && questionText.trim().endsWith("?"),
+    context: hasEncyclopedicContext({ contextSummary, sections }),
+    sources: false,
+    relationships: false,
+    verified: initial?.state === "APPROVED",
+  };
   const payload = (action: "save" | "submit") => ({
     action,
     questionText,
+    motivation,
     categoryId,
     claimedStatus,
     contextSummary,
@@ -423,7 +474,67 @@ export function SubmissionEditor({
       setBusy(false);
     }
   }
-  async function generateStory(){const title=questionText.trim();if(title.length<10||!title.endsWith("?")){setMessage("Enter a complete question of at least 10 characters ending in a question mark (?).");return;}setGenerating(true);setGenerationSeconds(0);setMessage("Tambaya AI is building a private encyclopedic proposal. This normally takes about two minutes…");const timer=window.setInterval(()=>setGenerationSeconds(value=>value+1),1000);const controller=new AbortController();const timeout=window.setTimeout(()=>controller.abort(),240000);try{const response=await fetch("/api/submissions/generate",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({questionText:title}),signal:controller.signal});const result=await response.json() as{error?:string;draft?:{categoryId:string;claimedStatus:AnswerStatus;contextSummary:string;tags:string[];sections:SubmissionSection[];warnings:string[]}};if(!response.ok||!result.draft)throw new Error(result.error??"Generation failed.");setCategoryId(result.draft.categoryId);setClaimedStatus(result.draft.claimedStatus);setContextSummary(result.draft.contextSummary);setTags(result.draft.tags.join(", "));setSections(result.draft.sections);setMessage("Premium proposal generated. Review every claim and edit it before saving or submitting.");}catch(error){setMessage(error instanceof DOMException&&error.name==="AbortError"?"Generation timed out after four minutes. Please try again.":error instanceof Error?error.message:"Generation failed.");}finally{window.clearInterval(timer);window.clearTimeout(timeout);setGenerating(false);}}
+  async function generateStory() {
+    const title = questionText.trim();
+    if (title.length < 10 || !title.endsWith("?")) {
+      setMessage(
+        "Enter a complete question of at least 10 characters ending in a question mark (?).",
+      );
+      return;
+    }
+    setGenerating(true);
+    setGenerationSeconds(0);
+    setMessage(
+      "Tambaya AI is building a private encyclopedic proposal. This normally takes about two minutes…",
+    );
+    const timer = window.setInterval(
+      () => setGenerationSeconds((value) => value + 1),
+      1000,
+    );
+    const controller = new AbortController();
+    const timeout = window.setTimeout(() => controller.abort(), 240000);
+    try {
+      const response = await fetch("/api/submissions/generate", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ questionText: title }),
+        signal: controller.signal,
+      });
+      const result = (await response.json()) as {
+        error?: string;
+        draft?: {
+          categoryId: string;
+          claimedStatus: AnswerStatus;
+          contextSummary: string;
+          tags: string[];
+          sections: SubmissionSection[];
+          warnings: string[];
+        };
+      };
+      if (!response.ok || !result.draft)
+        throw new Error(result.error ?? "Generation failed.");
+      setCategoryId(result.draft.categoryId);
+      setClaimedStatus(result.draft.claimedStatus);
+      setContextSummary(result.draft.contextSummary);
+      setTags(result.draft.tags.join(", "));
+      setSections(result.draft.sections);
+      setMessage(
+        "Premium proposal generated. Review every claim and edit it before saving or submitting.",
+      );
+    } catch (error) {
+      setMessage(
+        error instanceof DOMException && error.name === "AbortError"
+          ? "Generation timed out after four minutes. Please try again."
+          : error instanceof Error
+            ? error.message
+            : "Generation failed.",
+      );
+    } finally {
+      window.clearInterval(timer);
+      window.clearTimeout(timeout);
+      setGenerating(false);
+    }
+  }
   function updateBlock(
     sectionIndex: number,
     blockIndex: number,
@@ -450,7 +561,7 @@ export function SubmissionEditor({
             ? "Approved and published"
             : initial?.state === "REJECTED"
               ? "Not accepted for publication"
-            : "Editorial review in progress"}
+              : "Editorial review in progress"}
         </h2>
         <p>
           {initial?.state === "REJECTED"
@@ -480,7 +591,75 @@ export function SubmissionEditor({
       className="submission-editor"
       onSubmit={(event: FormEvent) => event.preventDefault()}
     >
-      {premium&&!initial&&<section className="premium-generator"><div><span className="eyebrow">Premium</span><h2>Start with only your question</h2><p>Tambaya AI will propose the category, status, tags, context, and complete Story. Nothing is saved or published automatically.</p><label>Question title<input value={questionText} maxLength={300} disabled={generating} onChange={event=>setQuestionText(event.target.value)} placeholder="Why do some questions endure across generations?"/></label><small role="status">{generating?`Generating for ${generationSeconds} seconds — keep this page open…`:"Use at least 10 characters and end with ?. Generation usually takes about two minutes."}</small></div><button type="button" className="button" disabled={generating} onClick={()=>void generateStory()}>{generating?`Generating… ${generationSeconds}s`:"Generate complete Story"}</button></section>}
+      <QuestionMaturity facts={maturity} />
+      <fieldset className="question-starter">
+        <legend>Start with the question</legend>
+        <label>
+          Question title
+          <input
+            required
+            maxLength={300}
+            value={questionText}
+            onChange={(event) => setQuestionText(event.target.value)}
+            placeholder="What question is worth preserving?"
+          />
+          <small>At least 10 characters, ending in a question mark.</small>
+        </label>
+        <label>
+          Why are you asking? <span>(optional)</span>
+          <textarea
+            rows={4}
+            maxLength={1500}
+            value={motivation}
+            onChange={(event) => setMotivation(event.target.value)}
+            placeholder="Tell editors what prompted the question or why it matters to you."
+          />
+          <small>
+            {motivation.length}/1500 · private editorial context, not part of
+            the public Story
+          </small>
+        </label>
+        <label>
+          Category
+          <select
+            value={categoryId}
+            onChange={(event) => setCategoryId(event.target.value)}
+          >
+            {categories.map((category) => (
+              <option key={category.id} value={category.id}>
+                {category.name}
+              </option>
+            ))}
+          </select>
+        </label>
+      </fieldset>
+      {premium && (
+        <section className="premium-generator">
+          <div>
+            <span className="eyebrow">Premium</span>
+            <h2>Let AI build the complete Story</h2>
+            <p>
+              Tambaya AI can propose context, sections, tags, and status from
+              your title. Nothing is saved or published automatically.
+            </p>
+            <small role="status">
+              {generating
+                ? `Generating for ${generationSeconds} seconds — keep this page open…`
+                : "Generation usually takes about two minutes."}
+            </small>
+          </div>
+          <button
+            type="button"
+            className="button"
+            disabled={generating}
+            onClick={() => void generateStory()}
+          >
+            {generating
+              ? `Generating… ${generationSeconds}s`
+              : "Generate complete Story"}
+          </button>
+        </section>
+      )}
       <div className="submission-toolbar">
         <p role="status">{message}</p>
         <div>
@@ -526,191 +705,183 @@ export function SubmissionEditor({
         </div>
       ) : (
         <>
-          <fieldset>
-            <legend>Question metadata</legend>
-            <label>
-              Question
-              <input
-                required
-                maxLength={300}
-                value={questionText}
-                onChange={(event) => setQuestionText(event.target.value)}
-                placeholder="What question is worth preserving?"
-              />
-            </label>
-            <div className="submission-fields">
-              <label>
-                Category
-                <select
-                  value={categoryId}
-                  onChange={(event) => setCategoryId(event.target.value)}
-                >
-                  {categories.map((category) => (
-                    <option key={category.id} value={category.id}>
-                      {category.name}
-                    </option>
-                  ))}
-                </select>
-              </label>
-              <label>
-                Claimed answer status
-                <select
-                  value={claimedStatus}
-                  onChange={(event) =>
-                    setClaimedStatus(event.target.value as AnswerStatus)
-                  }
-                >
-                  <option value="OPEN">Open</option>
-                  <option value="PARTIALLY_ANSWERED">Partially answered</option>
-                  <option value="ANSWERED">Answered</option>
-                </select>
-              </label>
-            </div>
-            <label>
-              Tags, separated by commas
-              <input
-                value={tags}
-                onChange={(event) => setTags(event.target.value)}
-                placeholder="consciousness, mind, neuroscience"
-              />
-            </label>
-            <label>
-              Context summary
-              <textarea
-                rows={6}
-                maxLength={5000}
-                value={contextSummary}
-                onChange={(event) => setContextSummary(event.target.value)}
-                placeholder="Explain the history, framing, and importance of the question without answering it."
-              />
-              <small>
-                {contextSummary.length}/5000 · at least 150 characters to submit
-              </small>
-            </label>
-          </fieldset>
-          {sections.map((section, sectionIndex) => (
-            <fieldset key={section.key}>
-              <legend>Story section {sectionIndex + 1}</legend>
-              <div className="submission-fields">
-                <label>
-                  Kicker
-                  <input
-                    value={section.kicker}
-                    onChange={(event) =>
-                      setSections((current) =>
-                        current.map((item, index) =>
-                          index === sectionIndex
-                            ? { ...item, kicker: event.target.value }
-                            : item,
-                        ),
-                      )
-                    }
-                  />
-                </label>
-                <label>
-                  Title
-                  <input
-                    value={section.title}
-                    onChange={(event) =>
-                      setSections((current) =>
-                        current.map((item, index) =>
-                          index === sectionIndex
-                            ? { ...item, title: event.target.value }
-                            : item,
-                        ),
-                      )
-                    }
-                  />
-                </label>
-              </div>
-              {section.blocks.map((block, blockIndex) => (
-                <BlockEditor
-                  key={blockIndex}
-                  block={block}
-                  change={(value) =>
-                    updateBlock(sectionIndex, blockIndex, value)
-                  }
-                  remove={() =>
-                    setSections((current) =>
-                      current.map((item, index) =>
-                        index === sectionIndex
-                          ? {
-                              ...item,
-                              blocks: item.blocks.filter(
-                                (_, position) => position !== blockIndex,
-                              ),
-                            }
-                          : item,
-                      ),
-                    )
-                  }
-                />
-              ))}
-              <div className="add-block">
-                <span>Add content:</span>
-                {(
-                  [
-                    "PARAGRAPH",
-                    "HEADING",
-                    "IMAGE",
-                    "TABLE",
-                    "LIST",
-                    "QUOTE",
-                    "CALLOUT",
-                  ] as StoryBlock["type"][]
-                ).map((type) => (
-                  <button
-                    type="button"
-                    key={type}
-                    onClick={() =>
-                      setSections((current) =>
-                        current.map((item, index) =>
-                          index === sectionIndex
-                            ? {
-                                ...item,
-                                blocks: [...item.blocks, newBlock(type)],
-                              }
-                            : item,
-                        ),
-                      )
-                    }
-                  >
-                    + {type.toLowerCase()}
-                  </button>
-                ))}
-              </div>
-              {sections.length > 3 && (
-                <button
-                  type="button"
-                  className="text-button"
-                  onClick={() =>
-                    setSections((current) =>
-                      current.filter((_, index) => index !== sectionIndex),
-                    )
-                  }
-                >
-                  Remove section
-                </button>
-              )}
-            </fieldset>
-          ))}
           <button
             type="button"
-            className="button ghost small"
-            onClick={() =>
-              setSections((current) => [
-                ...current,
-                {
-                  key: `section-${current.length + 1}`,
-                  kicker: "Context",
-                  title: "New section",
-                  blocks: [{ type: "PARAGRAPH", text: "" }],
-                },
-              ])
-            }
+            className="button ghost enrichment-toggle"
+            aria-expanded={advanced}
+            onClick={() => setAdvanced((value) => !value)}
           >
-            Add Story section
+            {advanced ? "Hide Story enrichment" : "Enrich this question"}
           </button>
+          {advanced && (
+            <>
+              <fieldset>
+                <legend>Story metadata</legend>
+                <div className="submission-fields">
+                  <label>
+                    Claimed answer status
+                    <select
+                      value={claimedStatus}
+                      onChange={(event) =>
+                        setClaimedStatus(event.target.value as AnswerStatus)
+                      }
+                    >
+                      <option value="OPEN">Open</option>
+                      <option value="PARTIALLY_ANSWERED">
+                        Partially answered
+                      </option>
+                      <option value="ANSWERED">Answered</option>
+                    </select>
+                  </label>
+                </div>
+                <label>
+                  Tags, separated by commas
+                  <input
+                    value={tags}
+                    onChange={(event) => setTags(event.target.value)}
+                    placeholder="consciousness, mind, neuroscience"
+                  />
+                </label>
+                <label>
+                  Context summary
+                  <textarea
+                    rows={6}
+                    maxLength={5000}
+                    value={contextSummary}
+                    onChange={(event) => setContextSummary(event.target.value)}
+                    placeholder="Explain the history, framing, and importance of the question without answering it."
+                  />
+                  <small>
+                    {contextSummary.length}/5000 · 150 characters advances the
+                    question to Context
+                  </small>
+                </label>
+              </fieldset>
+              {sections.map((section, sectionIndex) => (
+                <fieldset key={section.key}>
+                  <legend>Story section {sectionIndex + 1}</legend>
+                  <div className="submission-fields">
+                    <label>
+                      Kicker
+                      <input
+                        value={section.kicker}
+                        onChange={(event) =>
+                          setSections((current) =>
+                            current.map((item, index) =>
+                              index === sectionIndex
+                                ? { ...item, kicker: event.target.value }
+                                : item,
+                            ),
+                          )
+                        }
+                      />
+                    </label>
+                    <label>
+                      Title
+                      <input
+                        value={section.title}
+                        onChange={(event) =>
+                          setSections((current) =>
+                            current.map((item, index) =>
+                              index === sectionIndex
+                                ? { ...item, title: event.target.value }
+                                : item,
+                            ),
+                          )
+                        }
+                      />
+                    </label>
+                  </div>
+                  {section.blocks.map((block, blockIndex) => (
+                    <BlockEditor
+                      key={blockIndex}
+                      block={block}
+                      change={(value) =>
+                        updateBlock(sectionIndex, blockIndex, value)
+                      }
+                      remove={() =>
+                        setSections((current) =>
+                          current.map((item, index) =>
+                            index === sectionIndex
+                              ? {
+                                  ...item,
+                                  blocks: item.blocks.filter(
+                                    (_, position) => position !== blockIndex,
+                                  ),
+                                }
+                              : item,
+                          ),
+                        )
+                      }
+                    />
+                  ))}
+                  <div className="add-block">
+                    <span>Add content:</span>
+                    {(
+                      [
+                        "PARAGRAPH",
+                        "HEADING",
+                        "IMAGE",
+                        "TABLE",
+                        "LIST",
+                        "QUOTE",
+                        "CALLOUT",
+                      ] as StoryBlock["type"][]
+                    ).map((type) => (
+                      <button
+                        type="button"
+                        key={type}
+                        onClick={() =>
+                          setSections((current) =>
+                            current.map((item, index) =>
+                              index === sectionIndex
+                                ? {
+                                    ...item,
+                                    blocks: [...item.blocks, newBlock(type)],
+                                  }
+                                : item,
+                            ),
+                          )
+                        }
+                      >
+                        + {type.toLowerCase()}
+                      </button>
+                    ))}
+                  </div>
+                  {sections.length > 3 && (
+                    <button
+                      type="button"
+                      className="text-button"
+                      onClick={() =>
+                        setSections((current) =>
+                          current.filter((_, index) => index !== sectionIndex),
+                        )
+                      }
+                    >
+                      Remove section
+                    </button>
+                  )}
+                </fieldset>
+              ))}
+              <button
+                type="button"
+                className="button ghost small"
+                onClick={() =>
+                  setSections((current) => [
+                    ...current,
+                    {
+                      key: `section-${current.length + 1}`,
+                      kicker: "Context",
+                      title: "New section",
+                      blocks: [{ type: "PARAGRAPH", text: "" }],
+                    },
+                  ])
+                }
+              >
+                Add Story section
+              </button>
+            </>
+          )}
         </>
       )}
     </form>

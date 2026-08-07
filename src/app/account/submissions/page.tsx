@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { getAuthDatabase, getCurrentUser } from "@/lib/auth";
+import { QuestionMaturity } from "@/components/question-maturity";
 export const metadata: Metadata = { title: "Your question submissions" };
 type Row = {
   id: string;
@@ -11,7 +12,12 @@ type Row = {
   review_notes: string;
   updated_at: string;
   publication_state: string;
-  open_comments:number;
+  open_comments: number;
+  context_length: number;
+  section_count: number;
+  source_count: number;
+  relationship_count: number;
+  verification_state: string;
 };
 export default async function SubmissionsPage() {
   const user = await getCurrentUser();
@@ -22,7 +28,7 @@ export default async function SubmissionsPage() {
     (
       await db
         .prepare(
-          "SELECT id,slug,question_text,CASE WHEN editorial_outcome='REJECTED' THEN 'REJECTED' ELSE submission_state END submission_state,COALESCE(review_notes,'') review_notes,updated_at,publication_state,(SELECT COUNT(*) FROM editorial_comments ec WHERE ec.question_id=questions.id AND ec.resolved=0) open_comments FROM questions WHERE publisher_id=? AND submission_state IS NOT NULL ORDER BY updated_at DESC",
+          "SELECT id,slug,question_text,CASE WHEN editorial_outcome='REJECTED' THEN 'REJECTED' ELSE submission_state END submission_state,COALESCE(review_notes,'') review_notes,updated_at,publication_state,verification_state,length(COALESCE(context_summary,'')) context_length,(SELECT COUNT(*) FROM editorial_comments ec WHERE ec.question_id=questions.id AND ec.resolved=0) open_comments,(SELECT COUNT(*) FROM question_story_sections ss WHERE ss.question_id=questions.id) section_count,(SELECT COUNT(*) FROM question_references qr WHERE qr.question_id=questions.id) source_count,(SELECT COUNT(*) FROM question_relationships rel WHERE rel.verified=1 AND (rel.source_question_id=questions.id OR rel.target_question_id=questions.id)) relationship_count FROM questions WHERE publisher_id=? AND submission_state IS NOT NULL ORDER BY updated_at DESC",
         )
         .bind(user.id)
         .all<Row>()
@@ -55,7 +61,23 @@ export default async function SubmissionsPage() {
                 {row.submission_state.replaceAll("_", " ")}
               </span>
               <h2>{row.question_text}</h2>
-              {row.open_comments>0&&<p className="feedback-alert">● {row.open_comments} open editorial comment{row.open_comments===1?"":"s"}</p>}
+              <QuestionMaturity
+                facts={{
+                  asked: true,
+                  context: row.context_length >= 150 && row.section_count > 0,
+                  sources: row.source_count > 0,
+                  relationships: row.relationship_count > 0,
+                  verified:
+                    row.verification_state === "VERIFIED" &&
+                    row.publication_state === "PUBLISHED",
+                }}
+              />
+              {row.open_comments > 0 && (
+                <p className="feedback-alert">
+                  ● {row.open_comments} open editorial comment
+                  {row.open_comments === 1 ? "" : "s"}
+                </p>
+              )}
               {row.review_notes && (
                 <p>
                   <strong>Editorial note:</strong> {row.review_notes}
