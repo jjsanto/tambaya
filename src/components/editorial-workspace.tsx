@@ -313,6 +313,9 @@ export function EditorialWorkspace({
     Set<string>
   >(new Set());
   const [scope, setScope] = useState<"review" | "archive">("review");
+  const [workspaceMode, setWorkspaceMode] = useState<"review" | "create">(
+    "review",
+  );
   const [reviewCount, setReviewCount] = useState(0);
 
   useEffect(() => {
@@ -390,6 +393,8 @@ export function EditorialWorkspace({
         body: JSON.stringify(Object.fromEntries(new FormData(form))),
       });
       form.reset();
+      setWorkspaceMode("review");
+      setScope("review");
       setMessage(
         "Draft saved. It remains private until reviewed and published.",
       );
@@ -798,26 +803,43 @@ export function EditorialWorkspace({
         <nav className="editorial-scope">
           <button
             type="button"
-            className={scope === "review" ? "active" : ""}
-            onClick={() => setScope("review")}
+            className={
+              workspaceMode === "review" && scope === "review" ? "active" : ""
+            }
+            onClick={() => {
+              setWorkspaceMode("review");
+              setScope("review");
+            }}
           >
             Review queue <span>{reviewCount}</span>
           </button>
           <button
             type="button"
-            className={scope === "archive" ? "active" : ""}
-            onClick={() => setScope("archive")}
+            className={
+              workspaceMode === "review" && scope === "archive" ? "active" : ""
+            }
+            onClick={() => {
+              setWorkspaceMode("review");
+              setScope("archive");
+            }}
           >
             Question archive
+          </button>
+          <button
+            type="button"
+            className={workspaceMode === "create" ? "active" : ""}
+            onClick={() => setWorkspaceMode("create")}
+          >
+            Create private draft
           </button>
           <button type="button" onClick={() => void load()} disabled={busy}>
             Refresh
           </button>
         </nav>
       )}
-      {questions.length > 0 && (
+      {(questions.length > 0 || workspaceMode === "create") && (
         <>
-          <div className="editorial-grid">
+          <div className={`editorial-grid workspace-${workspaceMode}`}>
             <form className="editorial-form" onSubmit={createDraft}>
               <span className="eyebrow">New record</span>
               <h2>Create a private draft</h2>
@@ -1287,7 +1309,7 @@ export function EditorialWorkspace({
           </div>
         </>
       )}
-      {connected && questions.length === 0 && (
+      {connected && workspaceMode === "review" && questions.length === 0 && (
         <div className="empty">
           <h2>
             {scope === "review"
