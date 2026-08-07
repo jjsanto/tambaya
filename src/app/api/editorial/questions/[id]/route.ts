@@ -18,6 +18,7 @@ type DraftRow = {
   id: string;
   question_text: string;
   context_summary: string;
+  category_id: string;
   publication_state: string;
   submission_state: string | null;
   editorial_outcome: string | null;
@@ -176,7 +177,7 @@ export async function GET(
   if (!(await hasEditorialAccess(request, env))) return unauthorized();
   const { id } = await params;
   const question = await env.DB.prepare(
-    "SELECT id,question_text,context_summary,publication_state,submission_state,editorial_outcome FROM questions WHERE id=?",
+    "SELECT id,question_text,context_summary,category_id,publication_state,submission_state,editorial_outcome FROM questions WHERE id=?",
   )
     .bind(id)
     .first<DraftRow>();
@@ -190,6 +191,7 @@ export async function GET(
     revisionDraft,
     relationshipsResult,
     candidatesResult,
+    categoriesResult,
   ] = await Promise.all([
     env.DB.prepare(
       "SELECT id,section_key,kicker,title,position FROM question_story_sections WHERE question_id=? ORDER BY position",
@@ -226,6 +228,10 @@ export async function GET(
     )
       .bind(id)
       .all<CandidateQuestion>(),
+    env.DB.prepare("SELECT id,name FROM categories ORDER BY name").all<{
+      id: string;
+      name: string;
+    }>(),
   ]);
   const paragraphs = paragraphsResult.results ?? [];
   const blocks = blocksResult.results ?? [];
@@ -249,6 +255,7 @@ export async function GET(
   const workingCopy = revisionDraft
     ? (JSON.parse(revisionDraft.snapshot_json) as {
         contextSummary?: string;
+        categoryId?: string;
         sections?: EditableSection[];
       })
     : null;
@@ -268,6 +275,8 @@ export async function GET(
         ...question,
         context_summary:
           workingCopy?.contextSummary ?? question.context_summary,
+        category_id: workingCopy?.categoryId ?? question.category_id,
+        categories: categoriesResult.results ?? [],
         sections: workingSections ?? liveSections,
         liveSections,
         candidates: candidatesResult.results ?? [],
@@ -295,7 +304,7 @@ export async function PATCH(
   const { id } = await params;
   const body = (await request.json()) as Record<string, unknown>;
   const draft = await env.DB.prepare(
-    "SELECT id,question_text,context_summary,publication_state,submission_state,editorial_outcome FROM questions WHERE id=?",
+    "SELECT id,question_text,context_summary,category_id,publication_state,submission_state,editorial_outcome FROM questions WHERE id=?",
   )
     .bind(id)
     .first<DraftRow>();
@@ -400,6 +409,7 @@ export async function PATCH(
           JSON.stringify({
             questionText: draft.question_text,
             contextSummary: draft.context_summary,
+            categoryId: draft.category_id,
             sections,
           }),
         )
@@ -434,6 +444,17 @@ export async function PATCH(
           error:
             "The context summary must contain at least 150 characters and remain answer-free.",
         },
+        { status: 400 },
+      );
+    const categoryId = String(body.categoryId ?? "").trim();
+    const category = await env.DB.prepare(
+      "SELECT id,name FROM categories WHERE id=?",
+    )
+      .bind(categoryId)
+      .first<{ id: string; name: string }>();
+    if (!category)
+      return Response.json(
+        { error: "Choose a valid question category." },
         { status: 400 },
       );
     const requestedRelationships = Array.isArray(body.relationships)
@@ -536,6 +557,7 @@ export async function PATCH(
     const snapshot = JSON.stringify({
       questionText: draft.question_text,
       contextSummary,
+      categoryId: category.id,
       sections,
       relationships,
     });
@@ -630,8 +652,8 @@ export async function PATCH(
     );
     statements.push(
       env.DB.prepare(
-        "UPDATE questions SET context_summary=?,updated_at=CURRENT_TIMESTAMP WHERE id=?",
-      ).bind(contextSummary, id),
+        "UPDATE questions SET context_summary=?,category_id=?,category_name=?,updated_at=CURRENT_TIMESTAMP WHERE id=?",
+      ).bind(contextSummary, category.id, category.name, id),
     );
     statements.push(
       env.DB.prepare(
@@ -683,6 +705,7 @@ export async function PATCH(
       );
     const revised = JSON.parse(revisionDraft.snapshot_json) as {
       contextSummary?: string;
+      categoryId?: string;
       sections?: EditableSection[];
       relationships?: ApprovedRelationship[];
     };
@@ -701,6 +724,16 @@ export async function PATCH(
           error:
             "The revision context summary must contain at least 150 characters and remain answer-free.",
         },
+        { status: 400 },
+      );
+    const revisedCategory = await env.DB.prepare(
+      "SELECT id,name FROM categories WHERE id=?",
+    )
+      .bind(revised.categoryId ?? "")
+      .first<{ id: string; name: string }>();
+    if (!revisedCategory)
+      return Response.json(
+        { error: "The revision needs a valid category." },
         { status: 400 },
       );
     const currentSections = await env.DB.prepare(
@@ -795,8 +828,13 @@ export async function PATCH(
     );
     statements.push(
       env.DB.prepare(
-        "UPDATE questions SET context_summary=?,updated_at=CURRENT_TIMESTAMP WHERE id=?",
-      ).bind(revised.contextSummary, id),
+        "UPDATE questions SET context_summary=?,category_id=?,category_name=?,updated_at=CURRENT_TIMESTAMP WHERE id=?",
+      ).bind(
+        revised.contextSummary,
+        revisedCategory.id,
+        revisedCategory.name,
+        id,
+      ),
     );
     statements.push(
       env.DB.prepare(
@@ -822,6 +860,16 @@ export async function PATCH(
       env.DB.prepare(
         "UPDATE question_content_sections SET body=?,provenance='EDITORIAL',publication_state='PUBLISHED',answer_leak_state='PASSED',updated_at=CURRENT_TIMESTAMP WHERE question_id=? AND section_type='SUMMARY'",
       ).bind(revised.contextSummary, id),
+    );
+    statements.push(
+      env.DB.prepare("DELETE FROM question_search WHERE question_id=?").bind(
+        id,
+      ),
+    );
+    statements.push(
+      env.DB.prepare(
+        "INSERT INTO question_search (question_id,question_text,context_summary,category_name,tags) SELECT q.id,q.question_text,q.context_summary,COALESCE(c.name,q.category_name,''),COALESCE((SELECT group_concat(t.name,' ') FROM question_tags qt JOIN tags t ON t.id=qt.tag_id WHERE qt.question_id=q.id),'') FROM questions q LEFT JOIN categories c ON c.id=q.category_id WHERE q.id=?",
+      ).bind(id),
     );
     await env.DB.batch(statements);
     return Response.json({

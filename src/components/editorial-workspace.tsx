@@ -28,6 +28,8 @@ type StoryEditorSection = {
   blocks?: StoryBlock[];
 };
 type EditorialDetail = EditorialQuestion & {
+  category_id: string;
+  categories: { id: string; name: string }[];
   sections: StoryEditorSection[];
   liveSections: StoryEditorSection[];
   hasPendingRevision: boolean;
@@ -316,6 +318,7 @@ export function EditorialWorkspace({
     [],
   );
   const [editorContext, setEditorContext] = useState("");
+  const [editorCategoryId, setEditorCategoryId] = useState("");
   const [previewStory, setPreviewStory] = useState(false);
   const [proposal, setProposal] = useState<EnrichmentProposal | null>(null);
   const [approvedRelationships, setApprovedRelationships] = useState<
@@ -526,6 +529,7 @@ export function EditorialWorkspace({
       );
       setEditing(detail);
       setEditorContext(detail.context_summary);
+      setEditorCategoryId(detail.category_id);
       setEditorSections(detail.sections.length ? detail.sections : defaults);
       setPreviewStory(false);
       setRelationshipSuggestions(detail.relationships ?? []);
@@ -669,6 +673,7 @@ export function EditorialWorkspace({
           body: JSON.stringify({
             instruction,
             contextSummary: editorContext,
+            categoryId: editorCategoryId,
             sections: editorSections,
           }),
         },
@@ -715,6 +720,7 @@ export function EditorialWorkspace({
               ? "save_revision"
               : "save_story",
           contextSummary: editorContext,
+          categoryId: editorCategoryId,
           sections: editorSections,
           relationships: relationshipSuggestions.filter((relationship) =>
             approvedRelationships.has(
@@ -751,6 +757,7 @@ export function EditorialWorkspace({
         body: JSON.stringify({
           action: "save_revision",
           contextSummary: editorContext,
+          categoryId: editorCategoryId,
           sections: editorSections,
           relationships: relationshipSuggestions.filter((relationship) =>
             approvedRelationships.has(
@@ -827,6 +834,7 @@ export function EditorialWorkspace({
         body: JSON.stringify({
           action: "save_story",
           contextSummary: editorContext,
+          categoryId: editorCategoryId,
           sections: editorSections,
           relationships: relationshipSuggestions.filter((relationship) =>
             approvedRelationships.has(
@@ -1323,6 +1331,24 @@ export function EditorialWorkspace({
                       </p>
                     )}
                   </section>
+                  <fieldset>
+                    <legend>Classification</legend>
+                    <label>
+                      Category
+                      <select
+                        value={editorCategoryId}
+                        onChange={(event) =>
+                          setEditorCategoryId(event.target.value)
+                        }
+                      >
+                        {editing.categories.map((category) => (
+                          <option key={category.id} value={category.id}>
+                            {category.name}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                  </fieldset>
                   <fieldset>
                     <legend>Context summary</legend>
                     <label>
