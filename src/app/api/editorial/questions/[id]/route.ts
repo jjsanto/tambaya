@@ -2,6 +2,8 @@ import { getCloudflareContext } from "@opennextjs/cloudflare";
 import {
   hasLikelyAnswerLeak,
   isAnswerStatus,
+  isRelationshipType,
+  type RelationshipType,
   type StoryBlock,
 } from "@/domain/question";
 import {
@@ -46,6 +48,12 @@ type EditableSection = {
   title: string;
   paragraphs: string[];
   blocks?: StoryBlock[];
+};
+type ApprovedRelationship = {
+  targetId: string;
+  targetSlug: string;
+  type: RelationshipType;
+  confidence: number;
 };
 
 function normalizeBlocks(value: unknown): StoryBlock[] | null {
@@ -393,6 +401,43 @@ export async function PATCH(
         },
         { status: 400 },
       );
+    const requestedRelationships = Array.isArray(body.relationships)
+      ? body.relationships.slice(0, 8)
+      : [];
+    const relationships: ApprovedRelationship[] = [];
+    for (const raw of requestedRelationships) {
+      const item = raw as Record<string, unknown>;
+      const targetId = String(item.targetId ?? "");
+      const targetSlug = String(item.targetSlug ?? "");
+      const type = item.type;
+      const confidence = Number(item.confidence);
+      if (
+        !targetId ||
+        targetId === id ||
+        !isRelationshipType(type) ||
+        !Number.isFinite(confidence) ||
+        confidence < 0 ||
+        confidence > 1
+      )
+        return Response.json(
+          { error: "One proposed question relationship is invalid." },
+          { status: 400 },
+        );
+      const target = await env.DB.prepare(
+        "SELECT slug FROM questions WHERE id=? AND publication_state='PUBLISHED'",
+      )
+        .bind(targetId)
+        .first<{ slug: string }>();
+      if (!target || target.slug !== targetSlug)
+        return Response.json(
+          {
+            error:
+              "A proposed relationship no longer points to an available published question.",
+          },
+          { status: 400 },
+        );
+      relationships.push({ targetId, targetSlug, type, confidence });
+    }
     if (
       !Array.isArray(body.sections) ||
       body.sections.length < 3 ||
@@ -453,6 +498,7 @@ export async function PATCH(
       questionText: draft.question_text,
       contextSummary,
       sections,
+      relationships,
     });
     if (isPublishedRevision) {
       const revisionDraft = await env.DB.prepare(
@@ -553,6 +599,25 @@ export async function PATCH(
         "INSERT INTO question_content_sections (id,question_id,section_type,body,provenance,publication_state,answer_leak_state,position) VALUES (?,?, 'SUMMARY',?,'EDITORIAL','DRAFT','PENDING',0) ON CONFLICT(question_id,section_type) DO UPDATE SET body=excluded.body,provenance='EDITORIAL',publication_state='DRAFT',answer_leak_state='PENDING',updated_at=CURRENT_TIMESTAMP",
       ).bind(crypto.randomUUID(), id, contextSummary),
     );
+    statements.push(
+      env.DB.prepare(
+        "DELETE FROM question_relationships WHERE source_question_id=? AND created_by='AI_ASSISTED'",
+      ).bind(id),
+    );
+    relationships.forEach((relationship) =>
+      statements.push(
+        env.DB.prepare(
+          "INSERT INTO question_relationships (id,source_question_id,target_question_id,source_slug,target_slug,relationship_type,created_by,confidence,verified) SELECT ?,q.id,?,q.slug,?,?, 'AI_ASSISTED',?,1 FROM questions q WHERE q.id=? ON CONFLICT(source_question_id,target_question_id,relationship_type) DO UPDATE SET created_by='AI_ASSISTED',confidence=excluded.confidence,verified=1",
+        ).bind(
+          crypto.randomUUID(),
+          relationship.targetId,
+          relationship.targetSlug,
+          relationship.type,
+          relationship.confidence,
+          id,
+        ),
+      ),
+    );
     await env.DB.batch(statements);
     return Response.json({
       id,
@@ -579,6 +644,7 @@ export async function PATCH(
     const revised = JSON.parse(revisionDraft.snapshot_json) as {
       contextSummary?: string;
       sections?: EditableSection[];
+      relationships?: ApprovedRelationship[];
     };
     if (!revised.sections || revised.sections.length < 3)
       return Response.json(
@@ -691,6 +757,25 @@ export async function PATCH(
       env.DB.prepare(
         "UPDATE questions SET context_summary=?,updated_at=CURRENT_TIMESTAMP WHERE id=?",
       ).bind(revised.contextSummary, id),
+    );
+    statements.push(
+      env.DB.prepare(
+        "DELETE FROM question_relationships WHERE source_question_id=? AND created_by='AI_ASSISTED'",
+      ).bind(id),
+    );
+    (revised.relationships ?? []).forEach((relationship) =>
+      statements.push(
+        env.DB.prepare(
+          "INSERT INTO question_relationships (id,source_question_id,target_question_id,source_slug,target_slug,relationship_type,created_by,confidence,verified) SELECT ?,q.id,?,q.slug,?,?, 'AI_ASSISTED',?,1 FROM questions q WHERE q.id=? ON CONFLICT(source_question_id,target_question_id,relationship_type) DO UPDATE SET created_by='AI_ASSISTED',confidence=excluded.confidence,verified=1",
+        ).bind(
+          crypto.randomUUID(),
+          relationship.targetId,
+          relationship.targetSlug,
+          relationship.type,
+          relationship.confidence,
+          id,
+        ),
+      ),
     );
     statements.push(
       env.DB.prepare(

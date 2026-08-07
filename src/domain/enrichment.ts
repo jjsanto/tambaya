@@ -1,7 +1,9 @@
 import {
   answerStatuses,
   hasLikelyAnswerLeak,
+  isRelationshipType,
   type AnswerStatus,
+  type RelationshipType,
   type StoryBlock,
 } from "@/domain/question";
 
@@ -23,6 +25,14 @@ export type EnrichmentProposal = {
     publisher: string;
     url: string;
     purpose: string;
+  }[];
+  relationships: {
+    targetId: string;
+    targetSlug: string;
+    targetQuestion: string;
+    type: RelationshipType;
+    confidence: number;
+    rationale: string;
   }[];
   warnings: string[];
 };
@@ -124,6 +134,35 @@ export function parseEnrichmentProposal(value: unknown): EnrichmentProposal {
         },
       ];
     });
+  const relationships = (
+    Array.isArray(candidate.relationships) ? candidate.relationships : []
+  )
+    .slice(0, 8)
+    .flatMap((raw) => {
+      const item = raw as Record<string, unknown>;
+      const targetId = clean(item.targetId);
+      const targetSlug = clean(item.targetSlug);
+      const targetQuestion = clean(item.targetQuestion);
+      const type = clean(item.type);
+      const rationale = clean(item.rationale);
+      const confidence = Number(item.confidence);
+      if (
+        !targetId ||
+        !targetSlug ||
+        !targetQuestion ||
+        !isRelationshipType(type) ||
+        !rationale ||
+        !Number.isFinite(confidence) ||
+        confidence < 0 ||
+        confidence > 1
+      ) {
+        warnings.push("One invalid relationship suggestion was omitted.");
+        return [];
+      }
+      return [
+        { targetId, targetSlug, targetQuestion, type, confidence, rationale },
+      ];
+    });
   warnings.push(
     "AI output is a proposal. An editor must verify every factual claim and source before publication.",
   );
@@ -136,6 +175,7 @@ export function parseEnrichmentProposal(value: unknown): EnrichmentProposal {
       : "LOW",
     statusRationale: rationale,
     sourceLeads,
+    relationships,
     warnings,
   };
 }

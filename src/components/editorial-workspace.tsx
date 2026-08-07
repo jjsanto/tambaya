@@ -40,6 +40,15 @@ const labels: Record<string, string> = {
   PARTIALLY_ANSWERED: "Partially answered",
   ANSWERED: "Answered",
 };
+const relationshipLabels: Record<string, string> = {
+  RELATED_TO: "is related to",
+  LEADS_TO: "leads to",
+  DEPENDS_ON: "depends on",
+  REFINES: "refines",
+  GENERALIZES: "generalizes",
+  CHALLENGES: "challenges",
+  PRECEDES: "precedes",
+};
 
 function RichBlockFields({
   block,
@@ -300,6 +309,9 @@ export function EditorialWorkspace({
   const [editorContext, setEditorContext] = useState("");
   const [previewStory, setPreviewStory] = useState(false);
   const [proposal, setProposal] = useState<EnrichmentProposal | null>(null);
+  const [approvedRelationships, setApprovedRelationships] = useState<
+    Set<string>
+  >(new Set());
   const [scope, setScope] = useState<"review" | "archive">("review");
   const [reviewCount, setReviewCount] = useState(0);
 
@@ -495,6 +507,7 @@ export function EditorialWorkspace({
       setEditorContext(detail.context_summary);
       setEditorSections(detail.sections.length ? detail.sections : defaults);
       setPreviewStory(false);
+      setApprovedRelationships(new Set());
       setProposal(null);
       setMessage("Story editor opened.");
     } catch (error) {
@@ -621,6 +634,7 @@ export function EditorialWorkspace({
       if (!result.proposal)
         throw new Error("The enrichment service returned no proposal.");
       setProposal(result.proposal);
+      setApprovedRelationships(new Set());
       setEditorContext(result.proposal.contextSummary);
       setEditorSections(result.proposal.sections);
       setMessage(
@@ -650,6 +664,12 @@ export function EditorialWorkspace({
               : "save_story",
           contextSummary: editorContext,
           sections: editorSections,
+          relationships:
+            proposal?.relationships.filter((relationship) =>
+              approvedRelationships.has(
+                `${relationship.targetId}:${relationship.type}`,
+              ),
+            ) ?? [],
         }),
       });
       setMessage("Story sections saved as a new private revision.");
@@ -681,6 +701,12 @@ export function EditorialWorkspace({
           action: "save_revision",
           contextSummary: editorContext,
           sections: editorSections,
+          relationships:
+            proposal?.relationships.filter((relationship) =>
+              approvedRelationships.has(
+                `${relationship.targetId}:${relationship.type}`,
+              ),
+            ) ?? [],
         }),
       });
       await api(`/api/editorial/questions/${editing.id}`, {
@@ -956,6 +982,55 @@ export function EditorialWorkspace({
                       )}
                       <small>{proposal.warnings.join(" ")}</small>
                     </aside>
+                  )}
+                  {proposal && (
+                    <section className="relationship-proposals">
+                      <div>
+                        <span className="eyebrow">Question graph</span>
+                        <h4>Approve proposed connections</h4>
+                        <p>
+                          Suggestions are unchecked by default. Only selected
+                          relationships are saved to the navigable question map.
+                        </p>
+                      </div>
+                      {proposal.relationships.length ? (
+                        proposal.relationships.map((relationship) => {
+                          const key = `${relationship.targetId}:${relationship.type}`;
+                          return (
+                            <label key={key}>
+                              <input
+                                type="checkbox"
+                                checked={approvedRelationships.has(key)}
+                                onChange={(event) =>
+                                  setApprovedRelationships((current) => {
+                                    const next = new Set(current);
+                                    if (event.target.checked) next.add(key);
+                                    else next.delete(key);
+                                    return next;
+                                  })
+                                }
+                              />
+                              <span>
+                                <strong>
+                                  This question{" "}
+                                  {relationshipLabels[relationship.type]} “
+                                  {relationship.targetQuestion}”
+                                </strong>
+                                <small>
+                                  {Math.round(relationship.confidence * 100)}%
+                                  confidence · {relationship.rationale}
+                                </small>
+                              </span>
+                            </label>
+                          );
+                        })
+                      ) : (
+                        <p className="empty compact-empty">
+                          No defensible connections were proposed from the
+                          current catalogue.
+                        </p>
+                      )}
+                    </section>
                   )}
                   <fieldset>
                     <legend>Context summary</legend>

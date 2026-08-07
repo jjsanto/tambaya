@@ -18,6 +18,16 @@ const proposal = {
   statusRationale:
     "The available framing suggests that editorial verification should concentrate on whether an established consensus exists elsewhere.",
   sourceLeads: [],
+  relationships: [
+    {
+      targetId: "q-2",
+      targetSlug: "related-question",
+      targetQuestion: "What is related?",
+      type: "RELATED_TO",
+      confidence: 0.82,
+      rationale: "Both questions examine adjacent concepts.",
+    },
+  ],
 };
 
 describe("enrichment proposals", () => {
@@ -31,6 +41,13 @@ describe("enrichment proposals", () => {
     unsafe.sections[0].paragraph =
       "The definitive answer is something the public page should never reveal, despite this otherwise sufficiently long paragraph for validation.";
     expect(() => parseEnrichmentProposal(unsafe)).toThrow(/rejected/);
+  });
+  it("normalizes typed relationship proposals", () => {
+    expect(parseEnrichmentProposal(proposal).relationships[0]).toMatchObject({
+      targetId: "q-2",
+      type: "RELATED_TO",
+      confidence: 0.82,
+    });
   });
   it("rejects an enrichment without a publishable context summary", () => {
     expect(() =>
