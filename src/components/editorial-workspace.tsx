@@ -3,6 +3,7 @@
 import { FormEvent, useCallback, useEffect, useState } from "react";
 import type { StoryBlock } from "@/domain/question";
 import type { EnrichmentProposal } from "@/domain/enrichment";
+import { StoryBlocks } from "@/components/story-blocks";
 
 type EditorialQuestion = {
   id: string;
@@ -297,6 +298,7 @@ export function EditorialWorkspace({
     [],
   );
   const [editorContext, setEditorContext] = useState("");
+  const [previewStory, setPreviewStory] = useState(false);
   const [proposal, setProposal] = useState<EnrichmentProposal | null>(null);
   const [scope, setScope] = useState<"review" | "archive">("review");
   const [reviewCount, setReviewCount] = useState(0);
@@ -492,6 +494,7 @@ export function EditorialWorkspace({
       setEditing(detail);
       setEditorContext(detail.context_summary);
       setEditorSections(detail.sections.length ? detail.sections : defaults);
+      setPreviewStory(false);
       setProposal(null);
       setMessage("Story editor opened.");
     } catch (error) {
@@ -845,14 +848,59 @@ export function EditorialWorkspace({
                       <small>Private Story revision</small>
                       <h3>{editing.question_text}</h3>
                     </div>
-                    <button
-                      type="button"
-                      className="text-link"
-                      onClick={() => setEditing(null)}
-                    >
-                      Close
-                    </button>
+                    <div className="story-editor-head-actions">
+                      <button
+                        type="button"
+                        className="button ghost small"
+                        aria-pressed={previewStory}
+                        onClick={() => setPreviewStory((value) => !value)}
+                      >
+                        {previewStory ? "Hide preview" : "Preview question"}
+                      </button>
+                      <button
+                        type="button"
+                        className="text-link"
+                        onClick={() => setEditing(null)}
+                      >
+                        Close
+                      </button>
+                    </div>
                   </div>
+                  {previewStory && (
+                    <section
+                      className="submission-preview editorial-live-preview"
+                      aria-label="Question preview"
+                    >
+                      <span className="eyebrow">
+                        Reader preview · current working copy
+                      </span>
+                      <h1>{editing.question_text}</h1>
+                      <p className="lead">
+                        {editorContext ||
+                          "The context summary has not been written yet."}
+                      </p>
+                      {editorSections.map((section, index) => (
+                        <section key={`${section.key}-preview-${index}`}>
+                          <span className="eyebrow">{section.kicker}</span>
+                          <h2>
+                            {section.title || `Untitled section ${index + 1}`}
+                          </h2>
+                          <StoryBlocks
+                            blocks={
+                              section.blocks?.length
+                                ? section.blocks
+                                : section.paragraphs
+                                    .filter(Boolean)
+                                    .map((text) => ({
+                                      type: "PARAGRAPH" as const,
+                                      text,
+                                    }))
+                            }
+                          />
+                        </section>
+                      ))}
+                    </section>
+                  )}
                   <section className="enrichment-panel">
                     <div>
                       <span className="eyebrow">AI-assisted draft</span>
