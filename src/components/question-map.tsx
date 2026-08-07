@@ -112,18 +112,55 @@ function lines(text: string, limit = 22, maximum = 3) {
   return result;
 }
 
+const inverseRelationLabels: Record<RelationshipType, string> = {
+  RELATED_TO: "Is related to",
+  LEADS_TO: "Is reached from",
+  DEPENDS_ON: "Is required by",
+  REFINES: "Is refined by",
+  GENERALIZES: "Is a specific case of",
+  CHALLENGES: "Is challenged by",
+  PRECEDES: "Comes after",
+};
+
+function relationshipPhrase(edge: QuestionGraph["edges"][number], fromSlug: string) {
+  return edge.sourceSlug === fromSlug ? relationLabels[edge.type] : inverseRelationLabels[edge.type];
+}
+
+function findPath(graph: QuestionGraph, start: string, end: string, allowed: Set<string>) {
+  if (start === end) return [];
+  const queue: { slug: string; path: { edge: QuestionGraph["edges"][number]; from: string; to: string }[] }[] = [{ slug: start, path: [] }];
+  const visited = new Set([start]);
+  while (queue.length) {
+    const current = queue.shift()!;
+    for (const edge of graph.edges) {
+      if (!allowed.has(edge.type)) continue;
+      const next = edge.sourceSlug === current.slug ? edge.targetSlug : edge.targetSlug === current.slug ? edge.sourceSlug : "";
+      if (!next || visited.has(next)) continue;
+      const path = [...current.path, { edge, from: current.slug, to: next }];
+      if (next === end) return path;
+      visited.add(next);
+      queue.push({ slug: next, path });
+    }
+  }
+  return [];
+}
+
 export function QuestionMap({ graph }: { graph: QuestionGraph }) {
   const nodes = useMemo(() => positionNodes(graph), [graph]);
   const positions = useMemo(() => new Map(nodes.map((node) => [node.slug, node])), [nodes]);
   const types = useMemo(() => [...new Set(graph.edges.map((edge) => edge.type))], [graph.edges]);
   const [enabledTypes, setEnabledTypes] = useState<RelationshipType[]>(types);
+  const [showDepthTwo, setShowDepthTwo] = useState(false);
   const [selectedSlug, setSelectedSlug] = useState(graph.centerSlug);
   const [scale, setScale] = useState(1);
   const [offset, setOffset] = useState({ x: 0, y: 0 });
   const [drag, setDrag] = useState<{ x: number; y: number; originX: number; originY: number } | null>(null);
   const selected = positions.get(selectedSlug) ?? positions.get(graph.centerSlug);
-  const visibleEdges = graph.edges.filter((edge) => enabledTypes.includes(edge.type));
+  const visibleNodes = nodes.filter((node) => showDepthTwo || node.depth <= 1);
+  const visibleSlugs = new Set(visibleNodes.map((node) => node.slug));
+  const visibleEdges = graph.edges.filter((edge) => enabledTypes.includes(edge.type) && visibleSlugs.has(edge.sourceSlug) && visibleSlugs.has(edge.targetSlug));
   const selectedNeighbors = new Set(visibleEdges.flatMap((edge) => edge.sourceSlug === selectedSlug ? [edge.targetSlug] : edge.targetSlug === selectedSlug ? [edge.sourceSlug] : []));
+  const selectedPath = selected ? findPath(graph, graph.centerSlug, selected.slug, new Set(enabledTypes)) : [];
 
   function toggleType(type: RelationshipType) {
     setEnabledTypes((current) => current.includes(type) ? current.filter((item) => item !== type) : [...current, type]);
@@ -147,7 +184,7 @@ export function QuestionMap({ graph }: { graph: QuestionGraph }) {
       <div className={styles.toolbar}>
         <div>
           <strong>Relationship map</strong>
-          <span>{nodes.length} questions · {graph.edges.length} verified connections</span>
+          <span>{visibleNodes.length} questions · {visibleEdges.length} verified connections</span>
         </div>
         <div className={styles.controls} aria-label="Map controls">
           <button type="button" onClick={() => setScale((value) => Math.min(1.8, value + 0.15))} aria-label="Zoom in">+</button>
@@ -155,11 +192,19 @@ export function QuestionMap({ graph }: { graph: QuestionGraph }) {
           <button type="button" onClick={() => { setScale(1); setOffset({ x: 0, y: 0 }); }}>Reset</button>
         </div>
       </div>
+      <div className={styles.guide}>
+        <div><i className={styles.currentKey} /><span><strong>Current question</strong>Your starting point</span></div>
+        <div><i className={styles.openKey} /><span><strong>Open</strong>No established answer</span></div>
+        <div><i className={styles.partialKey} /><span><strong>Partially answered</strong>Some aspects resolved</span></div>
+        <div><i className={styles.answeredKey} /><span><strong>Answered</strong>Established answers exist</span></div>
+        {nodes.some((node) => node.depth > 1) && <button type="button" onClick={() => { setShowDepthTwo((value) => !value); setSelectedSlug(graph.centerSlug); }}>{showDepthTwo ? "Show direct only" : "Explore one level deeper"} →</button>}
+      </div>
       <div className={styles.filters} aria-label="Relationship filters">
+        <span>Show relationships</span>
         {types.map((type) => <button type="button" key={type} className={enabledTypes.includes(type) ? styles.active : ""} onClick={() => toggleType(type)}><i className={styles[type.toLowerCase()]} />{relationLabels[type]}</button>)}
       </div>
-      <div className={styles.canvas}>
-        <svg viewBox="0 0 1000 620" role="img" aria-labelledby="question-map-title" onPointerDown={startDrag} onPointerMove={moveDrag} onPointerUp={() => setDrag(null)} onPointerCancel={() => setDrag(null)} onWheel={zoom}>
+      <div className={styles.workspace}>
+        <div className={styles.canvas}><svg viewBox="0 0 1000 620" role="img" aria-labelledby="question-map-title" onPointerDown={startDrag} onPointerMove={moveDrag} onPointerUp={() => setDrag(null)} onPointerCancel={() => setDrag(null)} onWheel={zoom}>
           <title id="question-map-title">Interactive map of verified relationships around this question</title>
           <defs>
             <marker id="map-arrow" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M 0 0 L 10 5 L 0 10 z" /></marker>
@@ -179,7 +224,7 @@ export function QuestionMap({ graph }: { graph: QuestionGraph }) {
                 <title>{relationLabels[edge.type]}</title>
               </g>;
             })}
-            {nodes.map((node) => {
+            {visibleNodes.map((node) => {
               const center = node.slug === graph.centerSlug;
               const selectedNode = node.slug === selectedSlug;
               const subdued = !selectedNode && !selectedNeighbors.has(node.slug);
@@ -187,14 +232,17 @@ export function QuestionMap({ graph }: { graph: QuestionGraph }) {
                 <g className={`${styles.node} ${styles[node.status.toLowerCase()]} ${center ? styles.center : ""} ${selectedNode ? styles.selected : ""} ${subdued ? styles.subduedNode : ""}`} transform={`translate(${node.x} ${node.y})`}>
                   <circle r={node.radius} />
                   <text textAnchor="middle">{lines(node.questionText, center ? 18 : 13, center ? 3 : 2).map((line, index, all) => <tspan x="0" dy={index === 0 ? `${-(all.length - 1) * 0.55}em` : "1.1em"} key={`${line}-${index}`}>{line}</tspan>)}</text>
+                  {center && <text className={styles.currentLabel} textAnchor="middle" y={-node.radius - 13}>Current question</text>}
                 </g>
               </a>;
             })}
           </g>
-        </svg>
+        </svg></div>
         {selected && <aside className={styles.preview}>
-          <span>{selected.status.replaceAll("_", " ")} · {selected.category}</span>
+          <span>{selected.slug === graph.centerSlug ? "You are here" : `Selected · ${selected.status.replaceAll("_", " ")}`}</span>
           <strong>{selected.questionText}</strong>
+          <p>{selected.category}</p>
+          {selectedPath.length > 0 && <div className={styles.pathExplanation}><small>Path from the current question</small>{selectedPath.map((step, index) => <div key={`${step.to}-${index}`}><b>{relationshipPhrase(step.edge, step.from)} →</b><span>{positions.get(step.to)?.questionText}</span></div>)}</div>}
           <small>{selected.connectionCount} verified connection{selected.connectionCount === 1 ? "" : "s"}</small>
           <Link href={`/questions/${selected.slug}`}>{selected.slug === graph.centerSlug ? "Return to this question" : "Open question"} →</Link>
         </aside>}
