@@ -38,6 +38,17 @@ type BlockRow = {
   data_json: string;
   position: number;
 };
+type TimelineRow = {
+  display_date: string;
+  title: string;
+  description: string;
+  position: number;
+};
+type EditableTimelineEvent = {
+  displayDate: string;
+  title: string;
+  description: string;
+};
 type RevisionRow = { id: string; action: string; created_at: string };
 type RevisionDraftRow = {
   snapshot_json: string;
@@ -193,6 +204,7 @@ export async function GET(
     relationshipsResult,
     candidatesResult,
     categoriesResult,
+    timelineResult,
   ] = await Promise.all([
     env.DB.prepare(
       "SELECT id,section_key,kicker,title,position FROM question_story_sections WHERE question_id=? ORDER BY position",
@@ -233,6 +245,11 @@ export async function GET(
       id: string;
       name: string;
     }>(),
+    env.DB.prepare(
+      "SELECT display_date,title,description,position FROM timeline_events WHERE question_id=? ORDER BY position",
+    )
+      .bind(id)
+      .all<TimelineRow>(),
   ]);
   const paragraphs = paragraphsResult.results ?? [];
   const blocks = blocksResult.results ?? [];
@@ -258,6 +275,7 @@ export async function GET(
         contextSummary?: string;
         categoryId?: string;
         sections?: EditableSection[];
+        timeline?: EditableTimelineEvent[];
       })
     : null;
   const workingSections = workingCopy?.sections?.map((section) => ({
@@ -279,6 +297,13 @@ export async function GET(
         category_id: workingCopy?.categoryId ?? question.category_id,
         categories: categoriesResult.results ?? [],
         sections: workingSections ?? liveSections,
+        timeline:
+          workingCopy?.timeline ??
+          (timelineResult.results ?? []).map((event) => ({
+            displayDate: event.display_date,
+            title: event.title,
+            description: event.description,
+          })),
         liveSections,
         candidates: candidatesResult.results ?? [],
         relationships: (relationshipsResult.results ?? []).map(
@@ -412,6 +437,13 @@ export async function PATCH(
             contextSummary: draft.context_summary,
             categoryId: draft.category_id,
             sections,
+            timeline: (
+              await env.DB.prepare(
+                "SELECT display_date displayDate,title,description FROM timeline_events WHERE question_id=? ORDER BY position",
+              )
+                .bind(id)
+                .all<EditableTimelineEvent>()
+            ).results ?? [],
           }),
         )
         .run();
@@ -466,6 +498,29 @@ export async function PATCH(
       ? body.relationships.slice(0, 8)
       : [];
     const relationships: ApprovedRelationship[] = [];
+    if (!Array.isArray(body.timeline) || body.timeline.length > 12)
+      return Response.json(
+        { error: "The question history must be a timeline of up to 12 events." },
+        { status: 400 },
+      );
+    const timeline: EditableTimelineEvent[] = [];
+    for (const [position, raw] of body.timeline.entries()) {
+      const event = raw as Record<string, unknown>;
+      const displayDate = String(event.displayDate ?? "").trim();
+      const title = String(event.title ?? "").trim();
+      const description = String(event.description ?? "").trim();
+      if (
+        !displayDate ||
+        title.length < 4 ||
+        description.length < 60 ||
+        hasLikelyAnswerLeak(description)
+      )
+        return Response.json(
+          { error: `Timeline event ${position + 1} needs a date, title, and at least 60 answer-free characters.` },
+          { status: 400 },
+        );
+      timeline.push({ displayDate, title, description });
+    }
     for (const raw of requestedRelationships) {
       const item = raw as Record<string, unknown>;
       const targetId = String(item.targetId ?? "");
@@ -564,6 +619,7 @@ export async function PATCH(
       contextSummary,
       categoryId: category.id,
       sections,
+      timeline,
       relationships,
     });
     if (isPublishedRevision) {
@@ -613,7 +669,15 @@ export async function PATCH(
       env.DB.prepare(
         "DELETE FROM question_story_sections WHERE question_id=?",
       ).bind(id),
+      env.DB.prepare("DELETE FROM timeline_events WHERE question_id=?").bind(id),
     ];
+    timeline.forEach((event, position) =>
+      statements.push(
+        env.DB.prepare(
+          "INSERT INTO timeline_events (id,question_id,display_date,title,description,position) VALUES (?,?,?,?,?,?)",
+        ).bind(crypto.randomUUID(), id, event.displayDate, event.title, event.description, position),
+      ),
+    );
     sections.forEach((section, position) => {
       const sectionId = crypto.randomUUID();
       statements.push(
@@ -712,6 +776,7 @@ export async function PATCH(
       contextSummary?: string;
       categoryId?: string;
       sections?: EditableSection[];
+      timeline?: EditableTimelineEvent[];
       relationships?: ApprovedRelationship[];
     };
     if (!revised.sections || revised.sections.length < 3)
@@ -775,7 +840,15 @@ export async function PATCH(
       env.DB.prepare(
         "DELETE FROM question_story_sections WHERE question_id=?",
       ).bind(id),
+      env.DB.prepare("DELETE FROM timeline_events WHERE question_id=?").bind(id),
     ];
+    (revised.timeline ?? []).forEach((event, position) =>
+      statements.push(
+        env.DB.prepare(
+          "INSERT INTO timeline_events (id,question_id,display_date,title,description,position) VALUES (?,?,?,?,?,?)",
+        ).bind(crypto.randomUUID(), id, event.displayDate, event.title, event.description, position),
+      ),
+    );
     revised.sections.forEach((section, position) => {
       const sectionId = crypto.randomUUID();
       statements.push(

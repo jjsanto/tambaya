@@ -17,6 +17,11 @@ export type EnrichmentSection = {
 };
 export type EnrichmentProposal = {
   contextSummary: string;
+  timeline: {
+    displayDate: string;
+    title: string;
+    description: string;
+  }[];
   sections: EnrichmentSection[];
   suggestedStatus: AnswerStatus;
   statusConfidence: "LOW" | "MEDIUM" | "HIGH";
@@ -65,6 +70,26 @@ export function parseEnrichmentProposal(value: unknown): EnrichmentProposal {
   )
     throw new Error("AI returned an invalid number of Story sections.");
   const warnings: string[] = [];
+  if (
+    !Array.isArray(candidate.timeline) ||
+    candidate.timeline.length < 3 ||
+    candidate.timeline.length > 8
+  )
+    throw new Error("AI returned an invalid question-history timeline.");
+  const timeline = candidate.timeline.map((raw, index) => {
+    const event = raw as Record<string, unknown>;
+    const displayDate = clean(event.displayDate);
+    const title = clean(event.title);
+    const description = clean(event.description);
+    if (
+      !displayDate ||
+      title.length < 4 ||
+      description.length < 60 ||
+      hasLikelyAnswerLeak(description)
+    )
+      throw new Error(`AI timeline event ${index + 1} is incomplete or unsafe.`);
+    return { displayDate, title, description };
+  });
   const sections = candidate.sections.map((raw, index) => {
     const section = raw as Record<string, unknown>;
     const paragraph = clean(section.paragraph);
@@ -173,6 +198,7 @@ export function parseEnrichmentProposal(value: unknown): EnrichmentProposal {
   );
   return {
     contextSummary,
+    timeline,
     sections,
     suggestedStatus: suggestedStatus as AnswerStatus,
     statusConfidence: ["LOW", "MEDIUM", "HIGH"].includes(confidence)

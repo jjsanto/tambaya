@@ -27,10 +27,16 @@ type StoryEditorSection = {
   paragraphs: string[];
   blocks?: StoryBlock[];
 };
+type TimelineEditorEvent = {
+  displayDate: string;
+  title: string;
+  description: string;
+};
 type EditorialDetail = EditorialQuestion & {
   category_id: string;
   categories: { id: string; name: string }[];
   sections: StoryEditorSection[];
+  timeline: TimelineEditorEvent[];
   liveSections: StoryEditorSection[];
   hasPendingRevision: boolean;
   revisionDraftUpdatedAt: string | null;
@@ -318,6 +324,9 @@ export function EditorialWorkspace({
     [],
   );
   const [editorContext, setEditorContext] = useState("");
+  const [editorTimeline, setEditorTimeline] = useState<TimelineEditorEvent[]>(
+    [],
+  );
   const [editorCategoryId, setEditorCategoryId] = useState("");
   const [previewStory, setPreviewStory] = useState(false);
   const [proposal, setProposal] = useState<EnrichmentProposal | null>(null);
@@ -361,6 +370,7 @@ export function EditorialWorkspace({
         question?: EditorialDetail;
         proposal?: EnrichmentProposal;
         contextSummary?: string;
+        timeline?: TimelineEditorEvent[];
         reviewCount?: number;
       };
       if (!response.ok)
@@ -531,6 +541,7 @@ export function EditorialWorkspace({
       setEditorContext(detail.context_summary);
       setEditorCategoryId(detail.category_id);
       setEditorSections(detail.sections.length ? detail.sections : defaults);
+      setEditorTimeline(detail.timeline ?? []);
       setPreviewStory(false);
       setRelationshipSuggestions(detail.relationships ?? []);
       setManualTargetId("");
@@ -673,6 +684,7 @@ export function EditorialWorkspace({
           body: JSON.stringify({
             instruction,
             contextSummary: editorContext,
+            timeline: editorTimeline,
             categoryId: editorCategoryId,
             sections: editorSections,
           }),
@@ -692,6 +704,7 @@ export function EditorialWorkspace({
       setRelationshipSuggestions(result.proposal.relationships);
       setApprovedRelationships(new Set());
       setEditorContext(result.proposal.contextSummary);
+      setEditorTimeline(result.proposal.timeline);
       setEditorSections(result.proposal.sections);
       setAiInstruction("");
       setMessage(
@@ -720,6 +733,7 @@ export function EditorialWorkspace({
               ? "save_revision"
               : "save_story",
           contextSummary: editorContext,
+          timeline: editorTimeline,
           categoryId: editorCategoryId,
           sections: editorSections,
           relationships: relationshipSuggestions.filter((relationship) =>
@@ -757,6 +771,7 @@ export function EditorialWorkspace({
         body: JSON.stringify({
           action: "save_revision",
           contextSummary: editorContext,
+          timeline: editorTimeline,
           categoryId: editorCategoryId,
           sections: editorSections,
           relationships: relationshipSuggestions.filter((relationship) =>
@@ -834,6 +849,7 @@ export function EditorialWorkspace({
         body: JSON.stringify({
           action: "save_story",
           contextSummary: editorContext,
+          timeline: editorTimeline,
           categoryId: editorCategoryId,
           sections: editorSections,
           relationships: relationshipSuggestions.filter((relationship) =>
@@ -1049,6 +1065,19 @@ export function EditorialWorkspace({
                           />
                         </section>
                       ))}
+                      {editorTimeline.length > 0 && (
+                        <section>
+                          <span className="eyebrow">Key moments</span>
+                          <h2>How the asking changed</h2>
+                          {editorTimeline.map((event, index) => (
+                            <article key={`${event.displayDate}-${index}`}>
+                              <small>{event.displayDate}</small>
+                              <h3>{event.title}</h3>
+                              <p>{event.description}</p>
+                            </article>
+                          ))}
+                        </section>
+                      )}
                     </section>
                   )}
                   <section className="enrichment-panel">
@@ -1368,6 +1397,93 @@ export function EditorialWorkspace({
                         characters and no more than 60 words
                       </small>
                     </label>
+                  </fieldset>
+                  <fieldset>
+                    <legend>How the asking changed</legend>
+                    <p>
+                      Build the chronological history shown on the public
+                      question page. Record changes in framing, vocabulary,
+                      audience, or method—never an answer.
+                    </p>
+                    {editorTimeline.map((event, index) => (
+                      <div className="timeline-editor-event" key={index}>
+                        <label>
+                          Date or period
+                          <input
+                            required
+                            value={event.displayDate}
+                            placeholder="For example: 1970s"
+                            onChange={(change) =>
+                              setEditorTimeline((current) =>
+                                current.map((item, position) =>
+                                  position === index
+                                    ? { ...item, displayDate: change.target.value }
+                                    : item,
+                                ),
+                              )
+                            }
+                          />
+                        </label>
+                        <label>
+                          Milestone title
+                          <input
+                            required
+                            minLength={4}
+                            value={event.title}
+                            onChange={(change) =>
+                              setEditorTimeline((current) =>
+                                current.map((item, position) =>
+                                  position === index
+                                    ? { ...item, title: change.target.value }
+                                    : item,
+                                ),
+                              )
+                            }
+                          />
+                        </label>
+                        <label>
+                          What changed in the asking
+                          <textarea
+                            required
+                            minLength={60}
+                            rows={4}
+                            value={event.description}
+                            onChange={(change) =>
+                              setEditorTimeline((current) =>
+                                current.map((item, position) =>
+                                  position === index
+                                    ? { ...item, description: change.target.value }
+                                    : item,
+                                ),
+                              )
+                            }
+                          />
+                        </label>
+                        <button
+                          type="button"
+                          className="text-link"
+                          onClick={() =>
+                            setEditorTimeline((current) =>
+                              current.filter((_, position) => position !== index),
+                            )
+                          }
+                        >
+                          Remove event
+                        </button>
+                      </div>
+                    ))}
+                    <button
+                      type="button"
+                      className="button ghost small"
+                      onClick={() =>
+                        setEditorTimeline((current) => [
+                          ...current,
+                          { displayDate: "", title: "", description: "" },
+                        ])
+                      }
+                    >
+                      Add timeline event
+                    </button>
                   </fieldset>
                   {editorSections.map((section, index) => (
                     <fieldset key={`${section.key}-${index}`}>

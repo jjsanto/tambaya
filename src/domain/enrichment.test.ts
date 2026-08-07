@@ -4,6 +4,12 @@ import { parseEnrichmentProposal } from "./enrichment";
 const proposal = {
   contextSummary:
     "Across periods and disciplines, this question has accumulated several vocabularies, research traditions, and methodological disputes. Its history helps explain why the boundaries of the inquiry remain consequential without settling the matter itself.",
+  timeline: [1, 2, 3].map((index) => ({
+    displayDate: `Period ${index}`,
+    title: `A shift in framing ${index}`,
+    description:
+      "Writers and researchers began framing the inquiry through a different vocabulary, audience, and set of methods while keeping its central uncertainty visible.",
+  })),
   sections: [1, 2, 3].map((index) => ({
     key: `part-${index}`,
     kicker: "Historical context",
@@ -34,6 +40,7 @@ describe("enrichment proposals", () => {
   it("normalizes safe proposals into rich Story sections", () => {
     const result = parseEnrichmentProposal(proposal);
     expect(result.sections).toHaveLength(3);
+    expect(result.timeline).toHaveLength(3);
     expect(result.sections[0].blocks).toHaveLength(3);
   });
   it("rejects answer leakage before it reaches the editor", () => {

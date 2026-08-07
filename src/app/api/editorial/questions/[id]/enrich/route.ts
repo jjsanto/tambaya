@@ -32,6 +32,20 @@ const schema = {
   type: "object",
   properties: {
     contextSummary: { type: "string", minLength: 150 },
+    timeline: {
+      type: "array",
+      minItems: 3,
+      maxItems: 8,
+      items: {
+        type: "object",
+        properties: {
+          displayDate: { type: "string" },
+          title: { type: "string" },
+          description: { type: "string", minLength: 60 },
+        },
+        required: ["displayDate", "title", "description"],
+      },
+    },
     sections: {
       type: "array",
       minItems: 5,
@@ -112,6 +126,7 @@ const schema = {
   },
   required: [
     "contextSummary",
+    "timeline",
     "sections",
     "suggestedStatus",
     "statusConfidence",
@@ -139,6 +154,7 @@ export async function POST(
     instruction?: unknown;
     contextSummary?: unknown;
     sections?: unknown;
+    timeline?: unknown;
   };
   const instruction = String(body.instruction ?? "")
     .trim()
@@ -232,11 +248,11 @@ Category: ${question.category_name}
 Publisher's claimed answer status: ${question.claimed_status}
 Existing context: ${question.context_summary}
 Existing source records: ${JSON.stringify(references.results ?? [])}
-Current unsaved working copy: ${JSON.stringify({ contextSummary: body.contextSummary, sections: body.sections })}
+Current unsaved working copy: ${JSON.stringify({ contextSummary: body.contextSummary, timeline: body.timeline, sections: body.sections })}
 Editorial change request: ${instruction || "Create a comprehensive general enrichment."}
 Existing question candidates: ${JSON.stringify(candidatesResult.results ?? [])}
 
-Write a concise 45–60 word context summary plus 5–8 encyclopedic Story sections about the question's origins, changing vocabulary, history of inquiry, significance, appearances across fields, methodological difficulties, and lines of further inquiry. Each section paragraph must exceed 120 words. Explain the QUESTION and its history; do not state, imply, or summarize an answer. Never use phrases such as “the answer is”, “this proves”, or “therefore the answer”. The summary, lists, and callouts must also remain contextual.
+Write a concise 45–60 word context summary, a chronological 3–8 event timeline showing how the asking changed, and 5–8 encyclopedic Story sections about the question's origins, changing vocabulary, history of inquiry, significance, appearances across fields, methodological difficulties, and lines of further inquiry. Timeline displayDate values may be a year, period, or era; each event must identify a genuine change in framing, vocabulary, audience, or method rather than an alleged answer. Each section paragraph must exceed 120 words. Explain the QUESTION and its history; do not state, imply, or summarize an answer. Never use phrases such as “the answer is”, “this proves”, or “therefore the answer”. The summary, timeline, lists, and callouts must also remain contextual.
 
 Suggest an answer-status classification only as metadata about whether sufficiently established answers exist outside Tambaya. The rationale must describe verification scope and uncertainty without disclosing any answer. Treat statusConfidence as LOW unless the supplied source records support a stronger assessment. Source leads must be credible HTTPS references for an editor to verify; never fabricate article titles or URLs.
 
