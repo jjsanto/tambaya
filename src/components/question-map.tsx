@@ -28,7 +28,7 @@ function positionNodes(graph: QuestionGraph): PositionedNode[] {
       ...node,
       x: center ? 500 : 500 + Math.cos(angle) * initialDistance,
       y: center ? 290 : 290 + Math.sin(angle) * initialDistance * 0.68,
-      radius: center ? 58 : Math.min(45, 31 + Math.sqrt(Math.max(1, node.connectionCount)) * 4),
+      radius: center ? 64 : Math.min(50, 40 + Math.sqrt(Math.max(1, node.connectionCount)) * 3),
     };
   });
   const bySlug = new Map(positioned.map((node) => [node.slug, node]));
@@ -71,7 +71,7 @@ function positionNodes(graph: QuestionGraph): PositionedNode[] {
   return positioned;
 }
 
-function lines(text: string, limit = 22) {
+function lines(text: string, limit = 22, maximum = 3) {
   const words = text.replace(/\?$/, "").split(" ");
   const result: string[] = [];
   for (const word of words) {
@@ -79,7 +79,11 @@ function lines(text: string, limit = 22) {
     if (!last || last.length + word.length + 1 > limit) result.push(word);
     else result[result.length - 1] = `${last} ${word}`;
   }
-  if (result.length > 3) return [...result.slice(0, 2), `${result[2].slice(0, limit - 1)}…`];
+  if (result.length > maximum) {
+    const visible = result.slice(0, maximum);
+    visible[maximum - 1] = `${visible[maximum - 1].slice(0, limit - 1)}…`;
+    return visible;
+  }
   return result;
 }
 
@@ -152,7 +156,7 @@ export function QuestionMap({ graph }: { graph: QuestionGraph }) {
               return <a key={node.slug} href={`/questions/${node.slug}`} aria-current={center ? "page" : undefined} aria-label={`Open ${node.questionText}`} onMouseEnter={() => setSelectedSlug(node.slug)} onFocus={() => setSelectedSlug(node.slug)} onClick={(event) => { if (center) event.preventDefault(); }}>
                 <g className={`${styles.node} ${styles[node.status.toLowerCase()]} ${center ? styles.center : ""} ${selectedNode ? styles.selected : ""} ${subdued ? styles.subduedNode : ""}`} transform={`translate(${node.x} ${node.y})`}>
                   <circle r={node.radius} />
-                  <text textAnchor="middle">{lines(node.questionText, center ? 21 : 15).map((line, index, all) => <tspan x="0" dy={index === 0 ? `${-(all.length - 1) * 0.55}em` : "1.1em"} key={`${line}-${index}`}>{line}</tspan>)}</text>
+                  <text textAnchor="middle">{lines(node.questionText, center ? 18 : 13, center ? 3 : 2).map((line, index, all) => <tspan x="0" dy={index === 0 ? `${-(all.length - 1) * 0.55}em` : "1.1em"} key={`${line}-${index}`}>{line}</tspan>)}</text>
                 </g>
               </a>;
             })}
