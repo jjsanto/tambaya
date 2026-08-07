@@ -58,6 +58,31 @@ function positionNodes(graph: QuestionGraph): PositionedNode[] {
       movement.get(source.slug)!.x += fx; movement.get(source.slug)!.y += fy;
       movement.get(target.slug)!.x -= fx; movement.get(target.slug)!.y -= fy;
     }
+    for (const edge of graph.edges) {
+      const source = bySlug.get(edge.sourceSlug), target = bySlug.get(edge.targetSlug);
+      if (!source || !target) continue;
+      const edgeX = target.x - source.x, edgeY = target.y - source.y;
+      const edgeLengthSquared = edgeX * edgeX + edgeY * edgeY;
+      if (edgeLengthSquared < 1) continue;
+      for (const node of positioned) {
+        if (node.slug === source.slug || node.slug === target.slug) continue;
+        const projection = Math.max(0.08, Math.min(0.92, ((node.x - source.x) * edgeX + (node.y - source.y) * edgeY) / edgeLengthSquared));
+        const closestX = source.x + edgeX * projection, closestY = source.y + edgeY * projection;
+        let awayX = node.x - closestX, awayY = node.y - closestY;
+        let distance = Math.hypot(awayX, awayY);
+        const clearance = node.radius + 24;
+        if (distance >= clearance) continue;
+        if (distance < 1) {
+          const direction = node.slug.localeCompare(source.slug) < 0 ? -1 : 1;
+          awayX = (-edgeY / Math.sqrt(edgeLengthSquared)) * direction;
+          awayY = (edgeX / Math.sqrt(edgeLengthSquared)) * direction;
+          distance = 1;
+        }
+        const force = (clearance - distance) * 0.28;
+        movement.get(node.slug)!.x += (awayX / distance) * force;
+        movement.get(node.slug)!.y += (awayY / distance) * force;
+      }
+    }
     for (const node of positioned) {
       if (node.slug === graph.centerSlug) { node.x = 500; node.y = 290; continue; }
       const move = movement.get(node.slug)!;
@@ -143,9 +168,14 @@ export function QuestionMap({ graph }: { graph: QuestionGraph }) {
             {visibleEdges.map((edge, index) => {
               const source = positions.get(edge.sourceSlug), target = positions.get(edge.targetSlug);
               if (!source || !target) return null;
+              const dx = target.x - source.x, dy = target.y - source.y;
+              const distance = Math.max(1, Math.hypot(dx, dy));
+              const startInset = source.radius + 7, endInset = target.radius + (edge.type === "RELATED_TO" ? 7 : 13);
+              const startX = source.x + (dx / distance) * startInset, startY = source.y + (dy / distance) * startInset;
+              const endX = target.x - (dx / distance) * endInset, endY = target.y - (dy / distance) * endInset;
               const highlighted = edge.sourceSlug === selectedSlug || edge.targetSlug === selectedSlug;
               return <g className={`${styles.edge} ${styles[edge.type.toLowerCase()]} ${highlighted ? styles.highlighted : styles.subdued}`} key={`${edge.sourceSlug}-${edge.targetSlug}-${edge.type}-${index}`}>
-                <line x1={source.x} y1={source.y} x2={target.x} y2={target.y} markerEnd={edge.type === "RELATED_TO" ? undefined : "url(#map-arrow)"} />
+                <path d={`M ${startX} ${startY} L ${endX} ${endY}`} markerEnd={edge.type === "RELATED_TO" ? undefined : "url(#map-arrow)"} />
                 <title>{relationLabels[edge.type]}</title>
               </g>;
             })}
