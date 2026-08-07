@@ -1,184 +1,791 @@
 import { getCloudflareContext } from "@opennextjs/cloudflare";
-import { hasLikelyAnswerLeak, isAnswerStatus, type StoryBlock } from "@/domain/question";
-import { editorialHeaders, hasEditorialAccess, unauthorized } from "@/lib/editorial-auth";
+import {
+  hasLikelyAnswerLeak,
+  isAnswerStatus,
+  type StoryBlock,
+} from "@/domain/question";
+import {
+  editorialHeaders,
+  hasEditorialAccess,
+  unauthorized,
+} from "@/lib/editorial-auth";
 import type { CloudflareBindings } from "@/types/cloudflare";
-import{eventStatement}from"@/lib/submission-events";
+import { eventStatement } from "@/lib/submission-events";
 
-type DraftRow = { id: string; question_text: string; context_summary: string; publication_state: string; submission_state: string | null; editorial_outcome: string | null };
-type SectionRow = { id: string; section_key: string; kicker: string; title: string; position: number };
+type DraftRow = {
+  id: string;
+  question_text: string;
+  context_summary: string;
+  publication_state: string;
+  submission_state: string | null;
+  editorial_outcome: string | null;
+};
+type SectionRow = {
+  id: string;
+  section_key: string;
+  kicker: string;
+  title: string;
+  position: number;
+};
 type ParagraphRow = { section_id: string; body: string; position: number };
-type BlockRow = { section_id: string; block_type: StoryBlock["type"]; data_json: string; position: number };
+type BlockRow = {
+  section_id: string;
+  block_type: StoryBlock["type"];
+  data_json: string;
+  position: number;
+};
 type RevisionRow = { id: string; action: string; created_at: string };
-type RevisionDraftRow = { snapshot_json: string; created_at: string; updated_at: string };
-type EditableSection = { key: string; kicker: string; title: string; paragraphs: string[]; blocks?: StoryBlock[] };
+type RevisionDraftRow = {
+  snapshot_json: string;
+  created_at: string;
+  updated_at: string;
+};
+type EditableSection = {
+  key: string;
+  kicker: string;
+  title: string;
+  paragraphs: string[];
+  blocks?: StoryBlock[];
+};
 
 function normalizeBlocks(value: unknown): StoryBlock[] | null {
   if (!Array.isArray(value) || value.length > 40) return null;
   const output: StoryBlock[] = [];
   for (const item of value) {
-    const block = item as Record<string, unknown>; const type = String(block.type ?? "");
-    if (type === "PARAGRAPH" || type === "HEADING" || type === "QUOTE" || type === "CALLOUT") {
-      const text = String(block.text ?? "").trim(); if (!text || hasLikelyAnswerLeak(text)) return null;
+    const block = item as Record<string, unknown>;
+    const type = String(block.type ?? "");
+    if (
+      type === "PARAGRAPH" ||
+      type === "HEADING" ||
+      type === "QUOTE" ||
+      type === "CALLOUT"
+    ) {
+      const text = String(block.text ?? "").trim();
+      if (!text || hasLikelyAnswerLeak(text)) return null;
       if (type === "PARAGRAPH") output.push({ type, text });
-      else if (type === "HEADING") output.push({ type, text, level: block.level === 4 ? 4 : 3 });
-      else if (type === "QUOTE") output.push({ type, text, attribution: String(block.attribution ?? "").trim() || undefined, sourceUrl: String(block.sourceUrl ?? "").trim() || undefined });
-      else output.push({ type, text, title: String(block.title ?? "").trim() || undefined, tone: ["NOTE","CONTEXT","CAUTION"].includes(String(block.tone)) ? block.tone as "NOTE" | "CONTEXT" | "CAUTION" : "NOTE" });
+      else if (type === "HEADING")
+        output.push({ type, text, level: block.level === 4 ? 4 : 3 });
+      else if (type === "QUOTE")
+        output.push({
+          type,
+          text,
+          attribution: String(block.attribution ?? "").trim() || undefined,
+          sourceUrl: String(block.sourceUrl ?? "").trim() || undefined,
+        });
+      else
+        output.push({
+          type,
+          text,
+          title: String(block.title ?? "").trim() || undefined,
+          tone: ["NOTE", "CONTEXT", "CAUTION"].includes(String(block.tone))
+            ? (block.tone as "NOTE" | "CONTEXT" | "CAUTION")
+            : "NOTE",
+        });
     } else if (type === "IMAGE") {
-      const src = String(block.src ?? "").trim(); const alt = String(block.alt ?? "").trim(); if ((!src.startsWith("/") && !/^https:\/\//i.test(src)) || !alt) return null;
-      output.push({ type, src, alt, caption: String(block.caption ?? "").trim() || undefined, credit: String(block.credit ?? "").trim() || undefined, sourceUrl: String(block.sourceUrl ?? "").trim() || undefined });
+      const src = String(block.src ?? "").trim();
+      const alt = String(block.alt ?? "").trim();
+      if ((!src.startsWith("/") && !/^https:\/\//i.test(src)) || !alt)
+        return null;
+      output.push({
+        type,
+        src,
+        alt,
+        caption: String(block.caption ?? "").trim() || undefined,
+        credit: String(block.credit ?? "").trim() || undefined,
+        sourceUrl: String(block.sourceUrl ?? "").trim() || undefined,
+      });
     } else if (type === "LIST") {
-      const items = Array.isArray(block.items) ? block.items.map(String).map(text => text.trim()).filter(Boolean) : []; if (!items.length || items.some(hasLikelyAnswerLeak)) return null;
-      output.push({ type, style: block.style === "ORDERED" ? "ORDERED" : "UNORDERED", items });
+      const items = Array.isArray(block.items)
+        ? block.items
+            .map(String)
+            .map((text) => text.trim())
+            .filter(Boolean)
+        : [];
+      if (!items.length || items.some(hasLikelyAnswerLeak)) return null;
+      output.push({
+        type,
+        style: block.style === "ORDERED" ? "ORDERED" : "UNORDERED",
+        items,
+      });
     } else if (type === "TABLE") {
-      const headers = Array.isArray(block.headers) ? block.headers.map(String).map(text => text.trim()) : []; const rows = Array.isArray(block.rows) ? block.rows.map(row => Array.isArray(row) ? row.map(String).map(text => text.trim()) : []) : [];
-      if (!headers.length || headers.length > 12 || !rows.length || rows.length > 100 || rows.some(row => row.length !== headers.length) || [...headers,...rows.flat()].some(hasLikelyAnswerLeak)) return null;
-      output.push({ type, caption: String(block.caption ?? "").trim() || undefined, headers, rows });
+      const headers = Array.isArray(block.headers)
+        ? block.headers.map(String).map((text) => text.trim())
+        : [];
+      const rows = Array.isArray(block.rows)
+        ? block.rows.map((row) =>
+            Array.isArray(row)
+              ? row.map(String).map((text) => text.trim())
+              : [],
+          )
+        : [];
+      if (
+        !headers.length ||
+        headers.length > 12 ||
+        !rows.length ||
+        rows.length > 100 ||
+        rows.some((row) => row.length !== headers.length) ||
+        [...headers, ...rows.flat()].some(hasLikelyAnswerLeak)
+      )
+        return null;
+      output.push({
+        type,
+        caption: String(block.caption ?? "").trim() || undefined,
+        headers,
+        rows,
+      });
     } else return null;
   }
   return output;
 }
 
 async function runtime() {
-  return await getCloudflareContext({ async: true }) as unknown as { env: CloudflareBindings };
+  return (await getCloudflareContext({ async: true })) as unknown as {
+    env: CloudflareBindings;
+  };
 }
 
-export async function GET(request: Request, { params }: { params: Promise<{ id: string }> }) {
+export async function GET(
+  request: Request,
+  { params }: { params: Promise<{ id: string }> },
+) {
   const { env } = await runtime();
-  if (!await hasEditorialAccess(request, env)) return unauthorized();
+  if (!(await hasEditorialAccess(request, env))) return unauthorized();
   const { id } = await params;
-  const question = await env.DB.prepare("SELECT id,question_text,context_summary,publication_state,submission_state,editorial_outcome FROM questions WHERE id=?").bind(id).first<DraftRow>();
-  if (!question) return Response.json({ error: "Question not found." }, { status: 404 });
-  const [sectionsResult, paragraphsResult, blocksResult, revisionsResult, revisionDraft] = await Promise.all([
-    env.DB.prepare("SELECT id,section_key,kicker,title,position FROM question_story_sections WHERE question_id=? ORDER BY position").bind(id).all<SectionRow>(),
-    env.DB.prepare("SELECT p.section_id,p.body,p.position FROM question_story_paragraphs p JOIN question_story_sections s ON s.id=p.section_id WHERE s.question_id=? ORDER BY s.position,p.position").bind(id).all<ParagraphRow>(),
-    env.DB.prepare("SELECT b.section_id,b.block_type,b.data_json,b.position FROM question_story_blocks b JOIN question_story_sections s ON s.id=b.section_id WHERE s.question_id=? ORDER BY s.position,b.position").bind(id).all<BlockRow>(),
-    env.DB.prepare("SELECT id,action,created_at FROM editorial_revisions WHERE question_id=? ORDER BY created_at DESC LIMIT 12").bind(id).all<RevisionRow>(),
-    env.DB.prepare("SELECT snapshot_json,created_at,updated_at FROM question_revision_drafts WHERE question_id=?").bind(id).first<RevisionDraftRow>(),
+  const question = await env.DB.prepare(
+    "SELECT id,question_text,context_summary,publication_state,submission_state,editorial_outcome FROM questions WHERE id=?",
+  )
+    .bind(id)
+    .first<DraftRow>();
+  if (!question)
+    return Response.json({ error: "Question not found." }, { status: 404 });
+  const [
+    sectionsResult,
+    paragraphsResult,
+    blocksResult,
+    revisionsResult,
+    revisionDraft,
+  ] = await Promise.all([
+    env.DB.prepare(
+      "SELECT id,section_key,kicker,title,position FROM question_story_sections WHERE question_id=? ORDER BY position",
+    )
+      .bind(id)
+      .all<SectionRow>(),
+    env.DB.prepare(
+      "SELECT p.section_id,p.body,p.position FROM question_story_paragraphs p JOIN question_story_sections s ON s.id=p.section_id WHERE s.question_id=? ORDER BY s.position,p.position",
+    )
+      .bind(id)
+      .all<ParagraphRow>(),
+    env.DB.prepare(
+      "SELECT b.section_id,b.block_type,b.data_json,b.position FROM question_story_blocks b JOIN question_story_sections s ON s.id=b.section_id WHERE s.question_id=? ORDER BY s.position,b.position",
+    )
+      .bind(id)
+      .all<BlockRow>(),
+    env.DB.prepare(
+      "SELECT id,action,created_at FROM editorial_revisions WHERE question_id=? ORDER BY created_at DESC LIMIT 12",
+    )
+      .bind(id)
+      .all<RevisionRow>(),
+    env.DB.prepare(
+      "SELECT snapshot_json,created_at,updated_at FROM question_revision_drafts WHERE question_id=?",
+    )
+      .bind(id)
+      .first<RevisionDraftRow>(),
   ]);
   const paragraphs = paragraphsResult.results ?? [];
   const blocks = blocksResult.results ?? [];
-  const liveSections = (sectionsResult.results ?? []).map(section => ({ key: section.section_key, kicker: section.kicker, title: section.title, paragraphs: paragraphs.filter(item => item.section_id === section.id).map(item => item.body), blocks: blocks.filter(item => item.section_id === section.id).map(item => ({ type: item.block_type, ...JSON.parse(item.data_json) }) as StoryBlock) }));
-  const workingCopy = revisionDraft ? JSON.parse(revisionDraft.snapshot_json) as { sections?: EditableSection[] } : null;
-  const workingSections = workingCopy?.sections?.map(section => ({ ...section, blocks: section.blocks?.length ? section.blocks : liveSections.find(live => live.key === section.key)?.blocks ?? section.paragraphs.map(text => ({ type: "PARAGRAPH" as const, text })) }));
-  return Response.json({ question: { ...question, sections: workingSections ?? liveSections, liveSections, hasPendingRevision: !!revisionDraft, revisionDraftUpdatedAt: revisionDraft?.updated_at ?? null, revisions: revisionsResult.results ?? [] } }, { headers: editorialHeaders });
+  const liveSections = (sectionsResult.results ?? []).map((section) => ({
+    key: section.section_key,
+    kicker: section.kicker,
+    title: section.title,
+    paragraphs: paragraphs
+      .filter((item) => item.section_id === section.id)
+      .map((item) => item.body),
+    blocks: blocks
+      .filter((item) => item.section_id === section.id)
+      .map(
+        (item) =>
+          ({
+            type: item.block_type,
+            ...JSON.parse(item.data_json),
+          }) as StoryBlock,
+      ),
+  }));
+  const workingCopy = revisionDraft
+    ? (JSON.parse(revisionDraft.snapshot_json) as {
+        contextSummary?: string;
+        sections?: EditableSection[];
+      })
+    : null;
+  const workingSections = workingCopy?.sections?.map((section) => ({
+    ...section,
+    blocks: section.blocks?.length
+      ? section.blocks
+      : (liveSections.find((live) => live.key === section.key)?.blocks ??
+        section.paragraphs.map((text) => ({
+          type: "PARAGRAPH" as const,
+          text,
+        }))),
+  }));
+  return Response.json(
+    {
+      question: {
+        ...question,
+        context_summary:
+          workingCopy?.contextSummary ?? question.context_summary,
+        sections: workingSections ?? liveSections,
+        liveSections,
+        hasPendingRevision: !!revisionDraft,
+        revisionDraftUpdatedAt: revisionDraft?.updated_at ?? null,
+        revisions: revisionsResult.results ?? [],
+      },
+    },
+    { headers: editorialHeaders },
+  );
 }
 
-export async function PATCH(request: Request, { params }: { params: Promise<{ id: string }> }) {
+export async function PATCH(
+  request: Request,
+  { params }: { params: Promise<{ id: string }> },
+) {
   const { env } = await runtime();
-  if (!await hasEditorialAccess(request, env)) return unauthorized();
+  if (!(await hasEditorialAccess(request, env))) return unauthorized();
   const { id } = await params;
-  const body = await request.json() as Record<string, unknown>;
-  const draft = await env.DB.prepare("SELECT id,question_text,context_summary,publication_state,submission_state,editorial_outcome FROM questions WHERE id=?").bind(id).first<DraftRow>();
-  if (!draft) return Response.json({ error: "Question not found." }, { status: 404 });
+  const body = (await request.json()) as Record<string, unknown>;
+  const draft = await env.DB.prepare(
+    "SELECT id,question_text,context_summary,publication_state,submission_state,editorial_outcome FROM questions WHERE id=?",
+  )
+    .bind(id)
+    .first<DraftRow>();
+  if (!draft)
+    return Response.json({ error: "Question not found." }, { status: 404 });
   if (body.action === "request_changes") {
-    if (draft.submission_state !== "SUBMITTED" || draft.editorial_outcome) return Response.json({ error: "Only active submitted questions can be returned for changes." }, { status: 409 });
-    const reviewNotes=String(body.reviewNotes??"").trim(); if(reviewNotes.length<10||reviewNotes.length>1000)return Response.json({error:"Give the publisher a useful note of 10–1000 characters."},{status:400});
-    await env.DB.batch([env.DB.prepare("UPDATE questions SET submission_state='CHANGES_REQUESTED',review_notes=?,reviewed_at=CURRENT_TIMESTAMP,updated_at=CURRENT_TIMESTAMP WHERE id=?").bind(reviewNotes,id),eventStatement(env.DB,id,"EDITORIAL","CHANGES_REQUESTED",reviewNotes)]);
-    return Response.json({id,submissionState:"CHANGES_REQUESTED"});
+    if (draft.submission_state !== "SUBMITTED" || draft.editorial_outcome)
+      return Response.json(
+        {
+          error: "Only active submitted questions can be returned for changes.",
+        },
+        { status: 409 },
+      );
+    const reviewNotes = String(body.reviewNotes ?? "").trim();
+    if (reviewNotes.length < 10 || reviewNotes.length > 1000)
+      return Response.json(
+        { error: "Give the publisher a useful note of 10–1000 characters." },
+        { status: 400 },
+      );
+    await env.DB.batch([
+      env.DB.prepare(
+        "UPDATE questions SET submission_state='CHANGES_REQUESTED',review_notes=?,reviewed_at=CURRENT_TIMESTAMP,updated_at=CURRENT_TIMESTAMP WHERE id=?",
+      ).bind(reviewNotes, id),
+      eventStatement(env.DB, id, "EDITORIAL", "CHANGES_REQUESTED", reviewNotes),
+    ]);
+    return Response.json({ id, submissionState: "CHANGES_REQUESTED" });
   }
   if (body.action === "reject") {
-    if (draft.submission_state !== "SUBMITTED" || draft.editorial_outcome) return Response.json({ error: "Only active submitted questions can be rejected." }, { status: 409 });
-    const reviewNotes=String(body.reviewNotes??"").trim(); if(reviewNotes.length<10||reviewNotes.length>1000)return Response.json({error:"Give the publisher a clear rejection reason of 10–1000 characters."},{status:400});
-    await env.DB.batch([env.DB.prepare("UPDATE questions SET editorial_outcome='REJECTED',publication_state='ARCHIVED',visibility='PRIVATE',review_notes=?,reviewed_at=CURRENT_TIMESTAMP,rejected_at=CURRENT_TIMESTAMP,updated_at=CURRENT_TIMESTAMP WHERE id=?").bind(reviewNotes,id),eventStatement(env.DB,id,"EDITORIAL","REJECTED",reviewNotes)]);
-    return Response.json({id,submissionState:"REJECTED"});
+    if (draft.submission_state !== "SUBMITTED" || draft.editorial_outcome)
+      return Response.json(
+        { error: "Only active submitted questions can be rejected." },
+        { status: 409 },
+      );
+    const reviewNotes = String(body.reviewNotes ?? "").trim();
+    if (reviewNotes.length < 10 || reviewNotes.length > 1000)
+      return Response.json(
+        {
+          error:
+            "Give the publisher a clear rejection reason of 10–1000 characters.",
+        },
+        { status: 400 },
+      );
+    await env.DB.batch([
+      env.DB.prepare(
+        "UPDATE questions SET editorial_outcome='REJECTED',publication_state='ARCHIVED',visibility='PRIVATE',review_notes=?,reviewed_at=CURRENT_TIMESTAMP,rejected_at=CURRENT_TIMESTAMP,updated_at=CURRENT_TIMESTAMP WHERE id=?",
+      ).bind(reviewNotes, id),
+      eventStatement(env.DB, id, "EDITORIAL", "REJECTED", reviewNotes),
+    ]);
+    return Response.json({ id, submissionState: "REJECTED" });
   }
   if (body.action === "begin_revision") {
-    if (draft.publication_state !== "PUBLISHED") return Response.json({ error: "Only published questions need a separate revision copy." }, { status: 409 });
-    const existingDraft = await env.DB.prepare("SELECT question_id FROM question_revision_drafts WHERE question_id=?").bind(id).first<{ question_id: string }>();
+    if (draft.publication_state !== "PUBLISHED")
+      return Response.json(
+        { error: "Only published questions need a separate revision copy." },
+        { status: 409 },
+      );
+    const existingDraft = await env.DB.prepare(
+      "SELECT question_id FROM question_revision_drafts WHERE question_id=?",
+    )
+      .bind(id)
+      .first<{ question_id: string }>();
     if (!existingDraft) {
-      const sectionsResult = await env.DB.prepare("SELECT id,section_key,kicker,title FROM question_story_sections WHERE question_id=? ORDER BY position").bind(id).all<SectionRow>();
-      const paragraphsResult = await env.DB.prepare("SELECT p.section_id,p.body FROM question_story_paragraphs p JOIN question_story_sections s ON s.id=p.section_id WHERE s.question_id=? ORDER BY s.position,p.position").bind(id).all<ParagraphRow>();
-      const blocksResult = await env.DB.prepare("SELECT b.section_id,b.block_type,b.data_json,b.position FROM question_story_blocks b JOIN question_story_sections s ON s.id=b.section_id WHERE s.question_id=? ORDER BY s.position,b.position").bind(id).all<BlockRow>();
+      const sectionsResult = await env.DB.prepare(
+        "SELECT id,section_key,kicker,title FROM question_story_sections WHERE question_id=? ORDER BY position",
+      )
+        .bind(id)
+        .all<SectionRow>();
+      const paragraphsResult = await env.DB.prepare(
+        "SELECT p.section_id,p.body FROM question_story_paragraphs p JOIN question_story_sections s ON s.id=p.section_id WHERE s.question_id=? ORDER BY s.position,p.position",
+      )
+        .bind(id)
+        .all<ParagraphRow>();
+      const blocksResult = await env.DB.prepare(
+        "SELECT b.section_id,b.block_type,b.data_json,b.position FROM question_story_blocks b JOIN question_story_sections s ON s.id=b.section_id WHERE s.question_id=? ORDER BY s.position,b.position",
+      )
+        .bind(id)
+        .all<BlockRow>();
       const paragraphs = paragraphsResult.results ?? [];
       const blocks = blocksResult.results ?? [];
-      const sections = (sectionsResult.results ?? []).map(section => ({ key: section.section_key, kicker: section.kicker, title: section.title, paragraphs: paragraphs.filter(item => item.section_id === section.id).map(item => item.body), blocks: blocks.filter(item => item.section_id === section.id).map(item => ({ type: item.block_type, ...JSON.parse(item.data_json) }) as StoryBlock) }));
-      await env.DB.prepare("INSERT INTO question_revision_drafts (question_id,snapshot_json) VALUES (?,?)").bind(id,JSON.stringify({ questionText: draft.question_text, contextSummary: draft.context_summary, sections })).run();
+      const sections = (sectionsResult.results ?? []).map((section) => ({
+        key: section.section_key,
+        kicker: section.kicker,
+        title: section.title,
+        paragraphs: paragraphs
+          .filter((item) => item.section_id === section.id)
+          .map((item) => item.body),
+        blocks: blocks
+          .filter((item) => item.section_id === section.id)
+          .map(
+            (item) =>
+              ({
+                type: item.block_type,
+                ...JSON.parse(item.data_json),
+              }) as StoryBlock,
+          ),
+      }));
+      await env.DB.prepare(
+        "INSERT INTO question_revision_drafts (question_id,snapshot_json) VALUES (?,?)",
+      )
+        .bind(
+          id,
+          JSON.stringify({
+            questionText: draft.question_text,
+            contextSummary: draft.context_summary,
+            sections,
+          }),
+        )
+        .run();
     }
     return Response.json({ id, revisionState: "DRAFT" });
   }
   if (body.action === "discard_revision") {
-    await env.DB.prepare("DELETE FROM question_revision_drafts WHERE question_id=?").bind(id).run();
+    await env.DB.prepare(
+      "DELETE FROM question_revision_drafts WHERE question_id=?",
+    )
+      .bind(id)
+      .run();
     return Response.json({ id, revisionState: "DISCARDED" });
   }
   if (body.action === "save_story" || body.action === "save_revision") {
     const isPublishedRevision = draft.publication_state === "PUBLISHED";
-    if (isPublishedRevision && body.action !== "save_revision") return Response.json({ error: "Published Stories require a revision copy." }, { status: 409 });
-    if (!isPublishedRevision && draft.publication_state !== "DRAFT") return Response.json({ error: "This record cannot be edited." }, { status: 409 });
-    if (!Array.isArray(body.sections) || body.sections.length < 3 || body.sections.length > 20) return Response.json({ error: "A Story requires between 3 and 20 sections." }, { status: 400 });
+    if (isPublishedRevision && body.action !== "save_revision")
+      return Response.json(
+        { error: "Published Stories require a revision copy." },
+        { status: 409 },
+      );
+    if (!isPublishedRevision && draft.publication_state !== "DRAFT")
+      return Response.json(
+        { error: "This record cannot be edited." },
+        { status: 409 },
+      );
+    const contextSummary = String(body.contextSummary ?? "").trim();
+    if (contextSummary.length < 150 || hasLikelyAnswerLeak(contextSummary))
+      return Response.json(
+        {
+          error:
+            "The context summary must contain at least 150 characters and remain answer-free.",
+        },
+        { status: 400 },
+      );
+    if (
+      !Array.isArray(body.sections) ||
+      body.sections.length < 3 ||
+      body.sections.length > 20
+    )
+      return Response.json(
+        { error: "A Story requires between 3 and 20 sections." },
+        { status: 400 },
+      );
     for (const [position, value] of body.sections.entries()) {
-      const section = value as Record<string, unknown>; const title = String(section.title ?? "").trim();
-      const paragraphs = Array.isArray(section.paragraphs) ? section.paragraphs.map(item => String(item).trim()).filter(Boolean) : [];
-      const blocks = section.blocks === undefined ? paragraphs.map(text => ({ type: "PARAGRAPH", text })) : normalizeBlocks(section.blocks);
-      if (!String(section.kicker ?? "").trim() || title.length < 4 || paragraphs.length === 0 || paragraphs.some(paragraph => paragraph.length < 80 || hasLikelyAnswerLeak(paragraph)) || !blocks?.length) return Response.json({ error: `Section ${position + 1} needs a title, an answer-free paragraph of at least 80 characters, and valid content blocks.` }, { status: 400 });
+      const section = value as Record<string, unknown>;
+      const title = String(section.title ?? "").trim();
+      const paragraphs = Array.isArray(section.paragraphs)
+        ? section.paragraphs.map((item) => String(item).trim()).filter(Boolean)
+        : [];
+      const blocks =
+        section.blocks === undefined
+          ? paragraphs.map((text) => ({ type: "PARAGRAPH", text }))
+          : normalizeBlocks(section.blocks);
+      if (
+        !String(section.kicker ?? "").trim() ||
+        title.length < 4 ||
+        paragraphs.length === 0 ||
+        paragraphs.some(
+          (paragraph) =>
+            paragraph.length < 80 || hasLikelyAnswerLeak(paragraph),
+        ) ||
+        !blocks?.length
+      )
+        return Response.json(
+          {
+            error: `Section ${position + 1} needs a title, an answer-free paragraph of at least 80 characters, and valid content blocks.`,
+          },
+          { status: 400 },
+        );
     }
     const sections = body.sections.map((value, position) => {
       const section = value as Record<string, unknown>;
-      const kicker = String(section.kicker ?? "").trim(); const title = String(section.title ?? "").trim();
-      const paragraphs = Array.isArray(section.paragraphs) ? section.paragraphs.map(item => String(item).trim()).filter(Boolean) : [];
-      const blocks = normalizeBlocks(section.blocks) ?? paragraphs.map(text => ({ type: "PARAGRAPH" as const, text }));
-      return { key: String(section.key ?? `section-${position + 1}`).replace(/[^a-z0-9-]/gi,"-").toLowerCase(), kicker, title, paragraphs, blocks };
+      const kicker = String(section.kicker ?? "").trim();
+      const title = String(section.title ?? "").trim();
+      const paragraphs = Array.isArray(section.paragraphs)
+        ? section.paragraphs.map((item) => String(item).trim()).filter(Boolean)
+        : [];
+      const blocks =
+        normalizeBlocks(section.blocks) ??
+        paragraphs.map((text) => ({ type: "PARAGRAPH" as const, text }));
+      return {
+        key: String(section.key ?? `section-${position + 1}`)
+          .replace(/[^a-z0-9-]/gi, "-")
+          .toLowerCase(),
+        kicker,
+        title,
+        paragraphs,
+        blocks,
+      };
     });
-    const snapshot = JSON.stringify({ questionText: draft.question_text, contextSummary: draft.context_summary, sections });
+    const snapshot = JSON.stringify({
+      questionText: draft.question_text,
+      contextSummary,
+      sections,
+    });
     if (isPublishedRevision) {
-      const revisionDraft = await env.DB.prepare("SELECT question_id FROM question_revision_drafts WHERE question_id=?").bind(id).first<{ question_id: string }>();
-      if (!revisionDraft) return Response.json({ error: "Create a revision copy before editing this published Story." }, { status: 409 });
+      const revisionDraft = await env.DB.prepare(
+        "SELECT question_id FROM question_revision_drafts WHERE question_id=?",
+      )
+        .bind(id)
+        .first<{ question_id: string }>();
+      if (!revisionDraft)
+        return Response.json(
+          {
+            error:
+              "Create a revision copy before editing this published Story.",
+          },
+          { status: 409 },
+        );
       await env.DB.batch([
-        env.DB.prepare("UPDATE question_revision_drafts SET snapshot_json=?,updated_at=CURRENT_TIMESTAMP WHERE question_id=?").bind(snapshot,id),
-        env.DB.prepare("INSERT INTO editorial_revisions (id,question_id,action,snapshot_json) VALUES (?,?,'STORY_SAVED',?)").bind(crypto.randomUUID(),id,snapshot),
+        env.DB.prepare(
+          "UPDATE question_revision_drafts SET snapshot_json=?,updated_at=CURRENT_TIMESTAMP WHERE question_id=?",
+        ).bind(snapshot, id),
+        env.DB.prepare(
+          "INSERT INTO editorial_revisions (id,question_id,action,snapshot_json) VALUES (?,?,'STORY_SAVED',?)",
+        ).bind(crypto.randomUUID(), id, snapshot),
       ]);
-      return Response.json({ id, sections: sections.length, revisionSaved: true });
+      return Response.json({
+        id,
+        sections: sections.length,
+        revisionSaved: true,
+      });
     }
-    const existing = await env.DB.prepare("SELECT id FROM question_story_sections WHERE question_id=?").bind(id).all<{ id: string }>();
+    const existing = await env.DB.prepare(
+      "SELECT id FROM question_story_sections WHERE question_id=?",
+    )
+      .bind(id)
+      .all<{ id: string }>();
     const statements = [
-      ...(existing.results ?? []).map(section => env.DB.prepare("DELETE FROM question_story_blocks WHERE section_id=?").bind(section.id)),
-      ...(existing.results ?? []).map(section => env.DB.prepare("DELETE FROM question_story_paragraphs WHERE section_id=?").bind(section.id)),
-      env.DB.prepare("DELETE FROM question_story_sections WHERE question_id=?").bind(id),
+      ...(existing.results ?? []).map((section) =>
+        env.DB.prepare(
+          "DELETE FROM question_story_blocks WHERE section_id=?",
+        ).bind(section.id),
+      ),
+      ...(existing.results ?? []).map((section) =>
+        env.DB.prepare(
+          "DELETE FROM question_story_paragraphs WHERE section_id=?",
+        ).bind(section.id),
+      ),
+      env.DB.prepare(
+        "DELETE FROM question_story_sections WHERE question_id=?",
+      ).bind(id),
     ];
-    sections.forEach((section, position) => { const sectionId = crypto.randomUUID(); statements.push(env.DB.prepare("INSERT INTO question_story_sections (id,question_id,section_key,kicker,title,provenance,answer_leak_state,position) VALUES (?,?,?,?,?,'EDITORIAL','PENDING',?)").bind(sectionId,id,section.key,section.kicker,section.title,position)); section.paragraphs.forEach((paragraph, paragraphPosition) => statements.push(env.DB.prepare("INSERT INTO question_story_paragraphs (id,section_id,body,position) VALUES (?,?,?,?)").bind(crypto.randomUUID(),sectionId,paragraph,paragraphPosition))); section.blocks.forEach((block, blockPosition) => { const { type, ...data } = block; statements.push(env.DB.prepare("INSERT INTO question_story_blocks (id,section_id,block_type,data_json,position,answer_leak_state) VALUES (?,?,?,?,?,'PENDING')").bind(crypto.randomUUID(),sectionId,type,JSON.stringify(data),blockPosition)); }); });
-    statements.push(env.DB.prepare("INSERT INTO editorial_revisions (id,question_id,action,snapshot_json) VALUES (?,?,'STORY_SAVED',?)").bind(crypto.randomUUID(),id,snapshot));
-    statements.push(env.DB.prepare("UPDATE questions SET updated_at=CURRENT_TIMESTAMP WHERE id=?").bind(id));
+    sections.forEach((section, position) => {
+      const sectionId = crypto.randomUUID();
+      statements.push(
+        env.DB.prepare(
+          "INSERT INTO question_story_sections (id,question_id,section_key,kicker,title,provenance,answer_leak_state,position) VALUES (?,?,?,?,?,'EDITORIAL','PENDING',?)",
+        ).bind(
+          sectionId,
+          id,
+          section.key,
+          section.kicker,
+          section.title,
+          position,
+        ),
+      );
+      section.paragraphs.forEach((paragraph, paragraphPosition) =>
+        statements.push(
+          env.DB.prepare(
+            "INSERT INTO question_story_paragraphs (id,section_id,body,position) VALUES (?,?,?,?)",
+          ).bind(crypto.randomUUID(), sectionId, paragraph, paragraphPosition),
+        ),
+      );
+      section.blocks.forEach((block, blockPosition) => {
+        const { type, ...data } = block;
+        statements.push(
+          env.DB.prepare(
+            "INSERT INTO question_story_blocks (id,section_id,block_type,data_json,position,answer_leak_state) VALUES (?,?,?,?,?,'PENDING')",
+          ).bind(
+            crypto.randomUUID(),
+            sectionId,
+            type,
+            JSON.stringify(data),
+            blockPosition,
+          ),
+        );
+      });
+    });
+    statements.push(
+      env.DB.prepare(
+        "INSERT INTO editorial_revisions (id,question_id,action,snapshot_json) VALUES (?,?,'STORY_SAVED',?)",
+      ).bind(crypto.randomUUID(), id, snapshot),
+    );
+    statements.push(
+      env.DB.prepare(
+        "UPDATE questions SET context_summary=?,updated_at=CURRENT_TIMESTAMP WHERE id=?",
+      ).bind(contextSummary, id),
+    );
+    statements.push(
+      env.DB.prepare(
+        "INSERT INTO question_content_sections (id,question_id,section_type,body,provenance,publication_state,answer_leak_state,position) VALUES (?,?, 'SUMMARY',?,'EDITORIAL','DRAFT','PENDING',0) ON CONFLICT(question_id,section_type) DO UPDATE SET body=excluded.body,provenance='EDITORIAL',publication_state='DRAFT',answer_leak_state='PENDING',updated_at=CURRENT_TIMESTAMP",
+      ).bind(crypto.randomUUID(), id, contextSummary),
+    );
     await env.DB.batch(statements);
-    return Response.json({ id, sections: sections.length, revisionSaved: true });
+    return Response.json({
+      id,
+      sections: sections.length,
+      revisionSaved: true,
+    });
   }
   if (body.action === "publish_revision") {
-    if (draft.publication_state !== "PUBLISHED") return Response.json({ error: "Only published questions can publish a revision." }, { status: 409 });
-    const revisionDraft = await env.DB.prepare("SELECT snapshot_json FROM question_revision_drafts WHERE question_id=?").bind(id).first<RevisionDraftRow>();
-    if (!revisionDraft) return Response.json({ error: "No private revision is ready to publish." }, { status: 409 });
-    const revised = JSON.parse(revisionDraft.snapshot_json) as { sections?: EditableSection[] };
-    if (!revised.sections || revised.sections.length < 3) return Response.json({ error: "The revision needs at least three Story sections." }, { status: 400 });
-    const currentSections = await env.DB.prepare("SELECT id,section_key,kicker,title,position FROM question_story_sections WHERE question_id=? ORDER BY position").bind(id).all<SectionRow>();
-    const currentParagraphs = await env.DB.prepare("SELECT p.section_id,p.body,p.position FROM question_story_paragraphs p JOIN question_story_sections s ON s.id=p.section_id WHERE s.question_id=? ORDER BY s.position,p.position").bind(id).all<ParagraphRow>();
+    if (draft.publication_state !== "PUBLISHED")
+      return Response.json(
+        { error: "Only published questions can publish a revision." },
+        { status: 409 },
+      );
+    const revisionDraft = await env.DB.prepare(
+      "SELECT snapshot_json FROM question_revision_drafts WHERE question_id=?",
+    )
+      .bind(id)
+      .first<RevisionDraftRow>();
+    if (!revisionDraft)
+      return Response.json(
+        { error: "No private revision is ready to publish." },
+        { status: 409 },
+      );
+    const revised = JSON.parse(revisionDraft.snapshot_json) as {
+      contextSummary?: string;
+      sections?: EditableSection[];
+    };
+    if (!revised.sections || revised.sections.length < 3)
+      return Response.json(
+        { error: "The revision needs at least three Story sections." },
+        { status: 400 },
+      );
+    if (
+      !revised.contextSummary ||
+      revised.contextSummary.length < 150 ||
+      hasLikelyAnswerLeak(revised.contextSummary)
+    )
+      return Response.json(
+        {
+          error:
+            "The revision context summary must contain at least 150 characters and remain answer-free.",
+        },
+        { status: 400 },
+      );
+    const currentSections = await env.DB.prepare(
+      "SELECT id,section_key,kicker,title,position FROM question_story_sections WHERE question_id=? ORDER BY position",
+    )
+      .bind(id)
+      .all<SectionRow>();
+    const currentParagraphs = await env.DB.prepare(
+      "SELECT p.section_id,p.body,p.position FROM question_story_paragraphs p JOIN question_story_sections s ON s.id=p.section_id WHERE s.question_id=? ORDER BY s.position,p.position",
+    )
+      .bind(id)
+      .all<ParagraphRow>();
     const paragraphRows = currentParagraphs.results ?? [];
-    const previousSections = (currentSections.results ?? []).map(section => ({ key: section.section_key, kicker: section.kicker, title: section.title, paragraphs: paragraphRows.filter(item => item.section_id === section.id).map(item => item.body) }));
+    const previousSections = (currentSections.results ?? []).map((section) => ({
+      key: section.section_key,
+      kicker: section.kicker,
+      title: section.title,
+      paragraphs: paragraphRows
+        .filter((item) => item.section_id === section.id)
+        .map((item) => item.body),
+    }));
     const statements = [
-      ...(currentSections.results ?? []).map(section => env.DB.prepare("DELETE FROM question_story_blocks WHERE section_id=?").bind(section.id)),
-      ...(currentSections.results ?? []).map(section => env.DB.prepare("DELETE FROM question_story_paragraphs WHERE section_id=?").bind(section.id)),
-      env.DB.prepare("DELETE FROM question_story_sections WHERE question_id=?").bind(id),
+      ...(currentSections.results ?? []).map((section) =>
+        env.DB.prepare(
+          "DELETE FROM question_story_blocks WHERE section_id=?",
+        ).bind(section.id),
+      ),
+      ...(currentSections.results ?? []).map((section) =>
+        env.DB.prepare(
+          "DELETE FROM question_story_paragraphs WHERE section_id=?",
+        ).bind(section.id),
+      ),
+      env.DB.prepare(
+        "DELETE FROM question_story_sections WHERE question_id=?",
+      ).bind(id),
     ];
-    revised.sections.forEach((section, position) => { const sectionId = crypto.randomUUID(); statements.push(env.DB.prepare("INSERT INTO question_story_sections (id,question_id,section_key,kicker,title,provenance,answer_leak_state,reviewed_at,position) VALUES (?,?,?,?,?,'EDITORIAL','PASSED',CURRENT_TIMESTAMP,?)").bind(sectionId,id,section.key,section.kicker,section.title,position)); section.paragraphs.forEach((paragraph, paragraphPosition) => statements.push(env.DB.prepare("INSERT INTO question_story_paragraphs (id,section_id,body,position) VALUES (?,?,?,?)").bind(crypto.randomUUID(),sectionId,paragraph,paragraphPosition))); (section.blocks ?? section.paragraphs.map(text => ({ type: "PARAGRAPH" as const, text }))).forEach((block, blockPosition) => { const { type, ...data } = block; statements.push(env.DB.prepare("INSERT INTO question_story_blocks (id,section_id,block_type,data_json,position,answer_leak_state) VALUES (?,?,?,?,?,'PASSED')").bind(crypto.randomUUID(),sectionId,type,JSON.stringify(data),blockPosition)); }); });
-    statements.push(env.DB.prepare("INSERT INTO editorial_revisions (id,question_id,action,snapshot_json) VALUES (?,?,'PUBLISHED',?)").bind(crypto.randomUUID(),id,JSON.stringify({ previousSections, publishedSections: revised.sections })));
-    statements.push(env.DB.prepare("DELETE FROM question_revision_drafts WHERE question_id=?").bind(id));
-    statements.push(env.DB.prepare("UPDATE questions SET updated_at=CURRENT_TIMESTAMP WHERE id=?").bind(id));
+    revised.sections.forEach((section, position) => {
+      const sectionId = crypto.randomUUID();
+      statements.push(
+        env.DB.prepare(
+          "INSERT INTO question_story_sections (id,question_id,section_key,kicker,title,provenance,answer_leak_state,reviewed_at,position) VALUES (?,?,?,?,?,'EDITORIAL','PASSED',CURRENT_TIMESTAMP,?)",
+        ).bind(
+          sectionId,
+          id,
+          section.key,
+          section.kicker,
+          section.title,
+          position,
+        ),
+      );
+      section.paragraphs.forEach((paragraph, paragraphPosition) =>
+        statements.push(
+          env.DB.prepare(
+            "INSERT INTO question_story_paragraphs (id,section_id,body,position) VALUES (?,?,?,?)",
+          ).bind(crypto.randomUUID(), sectionId, paragraph, paragraphPosition),
+        ),
+      );
+      (
+        section.blocks ??
+        section.paragraphs.map((text) => ({ type: "PARAGRAPH" as const, text }))
+      ).forEach((block, blockPosition) => {
+        const { type, ...data } = block;
+        statements.push(
+          env.DB.prepare(
+            "INSERT INTO question_story_blocks (id,section_id,block_type,data_json,position,answer_leak_state) VALUES (?,?,?,?,?,'PASSED')",
+          ).bind(
+            crypto.randomUUID(),
+            sectionId,
+            type,
+            JSON.stringify(data),
+            blockPosition,
+          ),
+        );
+      });
+    });
+    statements.push(
+      env.DB.prepare(
+        "INSERT INTO editorial_revisions (id,question_id,action,snapshot_json) VALUES (?,?,'PUBLISHED',?)",
+      ).bind(
+        crypto.randomUUID(),
+        id,
+        JSON.stringify({
+          previousSections,
+          publishedSections: revised.sections,
+        }),
+      ),
+    );
+    statements.push(
+      env.DB.prepare(
+        "DELETE FROM question_revision_drafts WHERE question_id=?",
+      ).bind(id),
+    );
+    statements.push(
+      env.DB.prepare(
+        "UPDATE questions SET context_summary=?,updated_at=CURRENT_TIMESTAMP WHERE id=?",
+      ).bind(revised.contextSummary, id),
+    );
+    statements.push(
+      env.DB.prepare(
+        "UPDATE question_content_sections SET body=?,provenance='EDITORIAL',publication_state='PUBLISHED',answer_leak_state='PASSED',updated_at=CURRENT_TIMESTAMP WHERE question_id=? AND section_type='SUMMARY'",
+      ).bind(revised.contextSummary, id),
+    );
     await env.DB.batch(statements);
-    return Response.json({ id, publicationState: "PUBLISHED", revisionPublished: true });
+    return Response.json({
+      id,
+      publicationState: "PUBLISHED",
+      revisionPublished: true,
+    });
   }
-  if (body.action !== "publish") return Response.json({ error: "Unsupported editorial action." }, { status: 400 });
-  if (draft.editorial_outcome === "REJECTED") return Response.json({ error: "A rejected question cannot be published." }, { status: 409 });
-  if (draft.publication_state !== "DRAFT") return Response.json({ error: "Only drafts can be published." }, { status: 409 });
-  if (draft.submission_state && draft.submission_state !== "SUBMITTED") return Response.json({ error: "The publisher must submit this question before it can be published." }, { status: 409 });
-  if (!isAnswerStatus(body.verifiedStatus)) return Response.json({ error: "Choose a verified status before publishing." }, { status: 400 });
-  if (draft.context_summary.trim().length < 150 || hasLikelyAnswerLeak(draft.context_summary)) return Response.json({ error: "The context summary must contain at least 150 characters and remain answer-free." }, { status: 400 });
-  const storyCount = await env.DB.prepare("SELECT COUNT(*) count FROM question_story_sections WHERE question_id=?").bind(id).first<{ count: number }>();
-  if ((storyCount?.count ?? 0) < 3) return Response.json({ error: "Add at least three reviewed Story sections before publishing." }, { status: 400 });
+  if (body.action !== "publish")
+    return Response.json(
+      { error: "Unsupported editorial action." },
+      { status: 400 },
+    );
+  if (draft.editorial_outcome === "REJECTED")
+    return Response.json(
+      { error: "A rejected question cannot be published." },
+      { status: 409 },
+    );
+  if (draft.publication_state !== "DRAFT")
+    return Response.json(
+      { error: "Only drafts can be published." },
+      { status: 409 },
+    );
+  if (draft.submission_state && draft.submission_state !== "SUBMITTED")
+    return Response.json(
+      {
+        error:
+          "The publisher must submit this question before it can be published.",
+      },
+      { status: 409 },
+    );
+  if (!isAnswerStatus(body.verifiedStatus))
+    return Response.json(
+      { error: "Choose a verified status before publishing." },
+      { status: 400 },
+    );
+  if (
+    draft.context_summary.trim().length < 150 ||
+    hasLikelyAnswerLeak(draft.context_summary)
+  )
+    return Response.json(
+      {
+        error:
+          "The context summary must contain at least 150 characters and remain answer-free.",
+      },
+      { status: 400 },
+    );
+  const storyCount = await env.DB.prepare(
+    "SELECT COUNT(*) count FROM question_story_sections WHERE question_id=?",
+  )
+    .bind(id)
+    .first<{ count: number }>();
+  if ((storyCount?.count ?? 0) < 3)
+    return Response.json(
+      {
+        error: "Add at least three reviewed Story sections before publishing.",
+      },
+      { status: 400 },
+    );
   await env.DB.batch([
-    env.DB.prepare("UPDATE question_content_sections SET publication_state='PUBLISHED',answer_leak_state='PASSED',reviewed_by='EDITORIAL',reviewed_at=CURRENT_TIMESTAMP,updated_at=CURRENT_TIMESTAMP WHERE question_id=? AND section_type='SUMMARY'").bind(id),
-    env.DB.prepare("UPDATE question_story_sections SET answer_leak_state='PASSED',reviewed_at=CURRENT_TIMESTAMP WHERE question_id=?").bind(id),
-    env.DB.prepare("UPDATE question_story_blocks SET answer_leak_state='PASSED',updated_at=CURRENT_TIMESTAMP WHERE section_id IN (SELECT id FROM question_story_sections WHERE question_id=?)").bind(id),
-    env.DB.prepare("UPDATE questions SET publication_state='PUBLISHED',visibility='PUBLIC',submission_state=CASE WHEN submission_state IS NULL THEN NULL ELSE 'APPROVED' END,review_notes=NULL,reviewed_at=CURRENT_TIMESTAMP,verified_status=?,verification_state='VERIFIED',last_verified_at=CURRENT_TIMESTAMP,published_at=CURRENT_TIMESTAMP,updated_at=CURRENT_TIMESTAMP WHERE id=?").bind(body.verifiedStatus,id),
+    env.DB.prepare(
+      "UPDATE question_content_sections SET publication_state='PUBLISHED',answer_leak_state='PASSED',reviewed_by='EDITORIAL',reviewed_at=CURRENT_TIMESTAMP,updated_at=CURRENT_TIMESTAMP WHERE question_id=? AND section_type='SUMMARY'",
+    ).bind(id),
+    env.DB.prepare(
+      "UPDATE question_story_sections SET answer_leak_state='PASSED',reviewed_at=CURRENT_TIMESTAMP WHERE question_id=?",
+    ).bind(id),
+    env.DB.prepare(
+      "UPDATE question_story_blocks SET answer_leak_state='PASSED',updated_at=CURRENT_TIMESTAMP WHERE section_id IN (SELECT id FROM question_story_sections WHERE question_id=?)",
+    ).bind(id),
+    env.DB.prepare(
+      "UPDATE questions SET publication_state='PUBLISHED',visibility='PUBLIC',submission_state=CASE WHEN submission_state IS NULL THEN NULL ELSE 'APPROVED' END,review_notes=NULL,reviewed_at=CURRENT_TIMESTAMP,verified_status=?,verification_state='VERIFIED',last_verified_at=CURRENT_TIMESTAMP,published_at=CURRENT_TIMESTAMP,updated_at=CURRENT_TIMESTAMP WHERE id=?",
+    ).bind(body.verifiedStatus, id),
     env.DB.prepare("DELETE FROM question_search WHERE question_id=?").bind(id),
-    env.DB.prepare("INSERT INTO question_search (question_id,question_text,context_summary,category_name,tags) SELECT q.id,q.question_text,q.context_summary,COALESCE(c.name,q.category_name,''),COALESCE((SELECT group_concat(t.name,' ') FROM question_tags qt JOIN tags t ON t.id=qt.tag_id WHERE qt.question_id=q.id),'') FROM questions q LEFT JOIN categories c ON c.id=q.category_id WHERE q.id=?").bind(id),
-    env.DB.prepare("INSERT INTO editorial_revisions (id,question_id,action,snapshot_json) VALUES (?,?,'PUBLISHED',?)").bind(crypto.randomUUID(),id,JSON.stringify({ verifiedStatus: body.verifiedStatus })),
-    eventStatement(env.DB,id,"EDITORIAL","PUBLISHED",`Verified status: ${body.verifiedStatus}`),
+    env.DB.prepare(
+      "INSERT INTO question_search (question_id,question_text,context_summary,category_name,tags) SELECT q.id,q.question_text,q.context_summary,COALESCE(c.name,q.category_name,''),COALESCE((SELECT group_concat(t.name,' ') FROM question_tags qt JOIN tags t ON t.id=qt.tag_id WHERE qt.question_id=q.id),'') FROM questions q LEFT JOIN categories c ON c.id=q.category_id WHERE q.id=?",
+    ).bind(id),
+    env.DB.prepare(
+      "INSERT INTO editorial_revisions (id,question_id,action,snapshot_json) VALUES (?,?,'PUBLISHED',?)",
+    ).bind(
+      crypto.randomUUID(),
+      id,
+      JSON.stringify({ verifiedStatus: body.verifiedStatus }),
+    ),
+    eventStatement(
+      env.DB,
+      id,
+      "EDITORIAL",
+      "PUBLISHED",
+      `Verified status: ${body.verifiedStatus}`,
+    ),
   ]);
   return Response.json({ id, publicationState: "PUBLISHED" });
 }

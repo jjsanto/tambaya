@@ -1,51 +1,141 @@
-import { answerStatuses, hasLikelyAnswerLeak, type AnswerStatus, type StoryBlock } from "@/domain/question";
+import {
+  answerStatuses,
+  hasLikelyAnswerLeak,
+  type AnswerStatus,
+  type StoryBlock,
+} from "@/domain/question";
 
-export type EnrichmentSection = { key: string; kicker: string; title: string; paragraphs: string[]; blocks: StoryBlock[] };
+export type EnrichmentSection = {
+  key: string;
+  kicker: string;
+  title: string;
+  paragraphs: string[];
+  blocks: StoryBlock[];
+};
 export type EnrichmentProposal = {
+  contextSummary: string;
   sections: EnrichmentSection[];
   suggestedStatus: AnswerStatus;
   statusConfidence: "LOW" | "MEDIUM" | "HIGH";
   statusRationale: string;
-  sourceLeads: { title: string; publisher: string; url: string; purpose: string }[];
+  sourceLeads: {
+    title: string;
+    publisher: string;
+    url: string;
+    purpose: string;
+  }[];
   warnings: string[];
 };
 
-function clean(value: unknown) { return String(value ?? "").trim(); }
-function safeUrl(value: unknown) { const url = clean(value); return /^https:\/\//i.test(url) ? url : ""; }
+function clean(value: unknown) {
+  return String(value ?? "").trim();
+}
+function safeUrl(value: unknown) {
+  const url = clean(value);
+  return /^https:\/\//i.test(url) ? url : "";
+}
 
 export function parseEnrichmentProposal(value: unknown): EnrichmentProposal {
   const candidate = value as Record<string, unknown>;
-  if (!candidate || !Array.isArray(candidate.sections) || candidate.sections.length < 3 || candidate.sections.length > 10) throw new Error("AI returned an invalid number of Story sections.");
+  const contextSummary = clean(candidate.contextSummary);
+  if (contextSummary.length < 150 || hasLikelyAnswerLeak(contextSummary))
+    throw new Error(
+      "AI context summary is too short or may answer the question.",
+    );
+  if (
+    !candidate ||
+    !Array.isArray(candidate.sections) ||
+    candidate.sections.length < 3 ||
+    candidate.sections.length > 10
+  )
+    throw new Error("AI returned an invalid number of Story sections.");
   const warnings: string[] = [];
   const sections = candidate.sections.map((raw, index) => {
     const section = raw as Record<string, unknown>;
     const paragraph = clean(section.paragraph);
     const kicker = clean(section.kicker);
     const title = clean(section.title);
-    if (!kicker || title.length < 4 || paragraph.length < 80) throw new Error(`AI Story section ${index + 1} is incomplete.`);
-    if (hasLikelyAnswerLeak(paragraph)) throw new Error(`AI Story section ${index + 1} may answer the question and was rejected.`);
-    const listItems = Array.isArray(section.listItems) ? section.listItems.map(clean).filter(Boolean) : [];
-    if (listItems.some(hasLikelyAnswerLeak)) throw new Error(`AI Story section ${index + 1} contains an unsafe list and was rejected.`);
+    if (!kicker || title.length < 4 || paragraph.length < 80)
+      throw new Error(`AI Story section ${index + 1} is incomplete.`);
+    if (hasLikelyAnswerLeak(paragraph))
+      throw new Error(
+        `AI Story section ${index + 1} may answer the question and was rejected.`,
+      );
+    const listItems = Array.isArray(section.listItems)
+      ? section.listItems.map(clean).filter(Boolean)
+      : [];
+    if (listItems.some(hasLikelyAnswerLeak))
+      throw new Error(
+        `AI Story section ${index + 1} contains an unsafe list and was rejected.`,
+      );
     const blocks: StoryBlock[] = [{ type: "PARAGRAPH", text: paragraph }];
-    if (listItems.length) blocks.push({ type: "LIST", style: "UNORDERED", items: listItems });
+    if (listItems.length)
+      blocks.push({ type: "LIST", style: "UNORDERED", items: listItems });
     const callout = clean(section.callout);
     if (callout) {
-      if (hasLikelyAnswerLeak(callout)) throw new Error(`AI Story section ${index + 1} contains an unsafe callout and was rejected.`);
-      blocks.push({ type: "CALLOUT", tone: "CONTEXT", title: "Editorial context", text: callout });
+      if (hasLikelyAnswerLeak(callout))
+        throw new Error(
+          `AI Story section ${index + 1} contains an unsafe callout and was rejected.`,
+        );
+      blocks.push({
+        type: "CALLOUT",
+        tone: "CONTEXT",
+        title: "Editorial context",
+        text: callout,
+      });
     }
-    return { key: clean(section.key).replace(/[^a-z0-9-]/gi, "-").toLowerCase() || `section-${index + 1}`, kicker, title, paragraphs: [paragraph], blocks };
+    return {
+      key:
+        clean(section.key)
+          .replace(/[^a-z0-9-]/gi, "-")
+          .toLowerCase() || `section-${index + 1}`,
+      kicker,
+      title,
+      paragraphs: [paragraph],
+      blocks,
+    };
   });
   const suggestedStatus = clean(candidate.suggestedStatus);
-  if (!answerStatuses.includes(suggestedStatus as AnswerStatus)) throw new Error("AI returned an invalid status suggestion.");
+  if (!answerStatuses.includes(suggestedStatus as AnswerStatus))
+    throw new Error("AI returned an invalid status suggestion.");
   const rationale = clean(candidate.statusRationale);
-  if (!rationale || hasLikelyAnswerLeak(rationale)) throw new Error("AI status rationale failed the answer-leak policy.");
+  if (!rationale || hasLikelyAnswerLeak(rationale))
+    throw new Error("AI status rationale failed the answer-leak policy.");
   const confidence = clean(candidate.statusConfidence);
-  const sourceLeads = (Array.isArray(candidate.sourceLeads) ? candidate.sourceLeads : []).slice(0, 8).flatMap(raw => {
-    const source = raw as Record<string, unknown>; const url = safeUrl(source.url); const title = clean(source.title); const publisher = clean(source.publisher);
-    if (!url || !title || !publisher) { warnings.push("One incomplete source lead was omitted."); return []; }
-    return [{ title, publisher, url, purpose: clean(source.purpose) || "BACKGROUND" }];
-  });
-  warnings.push("AI output is a proposal. An editor must verify every factual claim and source before publication.");
-  return { sections, suggestedStatus: suggestedStatus as AnswerStatus, statusConfidence: ["LOW","MEDIUM","HIGH"].includes(confidence) ? confidence as "LOW"|"MEDIUM"|"HIGH" : "LOW", statusRationale: rationale, sourceLeads, warnings };
+  const sourceLeads = (
+    Array.isArray(candidate.sourceLeads) ? candidate.sourceLeads : []
+  )
+    .slice(0, 8)
+    .flatMap((raw) => {
+      const source = raw as Record<string, unknown>;
+      const url = safeUrl(source.url);
+      const title = clean(source.title);
+      const publisher = clean(source.publisher);
+      if (!url || !title || !publisher) {
+        warnings.push("One incomplete source lead was omitted.");
+        return [];
+      }
+      return [
+        {
+          title,
+          publisher,
+          url,
+          purpose: clean(source.purpose) || "BACKGROUND",
+        },
+      ];
+    });
+  warnings.push(
+    "AI output is a proposal. An editor must verify every factual claim and source before publication.",
+  );
+  return {
+    contextSummary,
+    sections,
+    suggestedStatus: suggestedStatus as AnswerStatus,
+    statusConfidence: ["LOW", "MEDIUM", "HIGH"].includes(confidence)
+      ? (confidence as "LOW" | "MEDIUM" | "HIGH")
+      : "LOW",
+    statusRationale: rationale,
+    sourceLeads,
+    warnings,
+  };
 }
-
