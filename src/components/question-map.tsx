@@ -230,9 +230,9 @@ export function QuestionMap({ graph }: { graph: QuestionGraph }) {
               const subdued = !selectedNode && !selectedNeighbors.has(node.slug);
               return <a key={node.slug} href={`/questions/${node.slug}`} aria-current={center ? "page" : undefined} aria-label={`Open ${node.questionText}`} onMouseEnter={() => setSelectedSlug(node.slug)} onFocus={() => setSelectedSlug(node.slug)} onClick={(event) => { if (center) event.preventDefault(); }}>
                 <g className={`${styles.node} ${styles[node.status.toLowerCase()]} ${center ? styles.center : ""} ${selectedNode ? styles.selected : ""} ${subdued ? styles.subduedNode : ""}`} transform={`translate(${node.x} ${node.y})`}>
+                  <circle className={styles.nodeClearance} r={node.radius + 11} />
                   <circle r={node.radius} />
                   <text textAnchor="middle">{lines(node.questionText, center ? 18 : 13, center ? 3 : 2).map((line, index, all) => <tspan x="0" dy={index === 0 ? `${-(all.length - 1) * 0.55}em` : "1.1em"} key={`${line}-${index}`}>{line}</tspan>)}</text>
-                  {center && <text className={styles.currentLabel} textAnchor="middle" y={-node.radius - 13}>Current question</text>}
                 </g>
               </a>;
             })}
