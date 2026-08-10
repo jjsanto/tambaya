@@ -185,6 +185,8 @@ export async function POST(
     contextSummary?: unknown;
     sections?: unknown;
     timeline?: unknown;
+    answerAttempts?: unknown;
+    verifiedStatus?: unknown;
   };
   const instruction = String(body.instruction ?? "")
     .trim()
@@ -217,6 +219,11 @@ export async function POST(
       { error: "Question not found." },
       { status: 404, headers: editorialHeaders },
     );
+  const workingStatus = ["OPEN", "PARTIALLY_ANSWERED", "ANSWERED"].includes(
+    String(body.verifiedStatus),
+  )
+    ? String(body.verifiedStatus)
+    : question.claimed_status;
   if (
     instruction &&
     /context\s+summary|summary\s+for|write\s+(?:the\s+)?context/i.test(
@@ -275,10 +282,10 @@ export async function POST(
 
 Question: ${question.question_text}
 Category: ${question.category_name}
-Publisher's claimed answer status: ${question.claimed_status}
+Current editorial answer status: ${workingStatus}
 Existing context: ${question.context_summary}
 Existing source records: ${JSON.stringify(references.results ?? [])}
-Current unsaved working copy: ${JSON.stringify({ contextSummary: body.contextSummary, timeline: body.timeline, sections: body.sections })}
+Current unsaved working copy: ${JSON.stringify({ contextSummary: body.contextSummary, timeline: body.timeline, answerAttempts: body.answerAttempts, sections: body.sections })}
 Editorial change request: ${instruction || "Create a comprehensive general enrichment."}
 Existing question candidates: ${JSON.stringify(candidatesResult.results ?? [])}
 
@@ -286,7 +293,7 @@ Write a concise 45–60 word context summary, a chronological 3–8 event timeli
 
 Suggest an answer-status classification only as metadata about whether sufficiently established answers exist outside Tambaya. The rationale must describe verification scope and uncertainty without disclosing any answer. Treat statusConfidence as LOW unless the supplied source records support a stronger assessment. Source leads must be credible HTTPS references for an editor to verify; never fabricate article titles or URLs.
 
-For OPEN and PARTIALLY_ANSWERED questions, propose up to 10 historically significant works that explicitly attempted to answer or materially investigate this question. For each answerAttempt, identify the bibliographic source, its approach, the aspect or scope it addressed, its historical significance, and what remained unresolved or outside its scope. Describe the attempt without revealing, endorsing, or summarizing its proposed answer. Use only credible HTTPS URLs you can identify confidently. Return an empty array rather than inventing a source. For ANSWERED questions, return an empty answerAttempts array.
+For OPEN and PARTIALLY_ANSWERED questions, propose 3–6 historically significant, identifiable works that explicitly attempted to answer or materially investigate this question. Do not omit this part merely because a URL is uncertain. For each answerAttempt, identify the bibliographic source, its approach, the aspect or scope it addressed, its historical significance, and what remained unresolved or outside its scope. Describe the attempt without revealing, endorsing, or summarizing its proposed answer. Supply an HTTPS URL only when you know a credible canonical or publisher page; otherwise return an empty string for url so an editor can locate and verify it. Never invent a title, author, publisher, or URL. If fewer than three genuine works are known, return the defensible works rather than padding the list. For ANSWERED questions, return an empty answerAttempts array.
 
 Also propose up to 8 meaningful outbound relationships in the form “this question RELATIONSHIP_TYPE candidate question”. Use only IDs, slugs, and exact question titles from Existing question candidates. Do not force weak connections. Give each a 0–1 confidence and a concise rationale. Return an empty relationships array if none are defensible. Return only the requested JSON.`;
   try {
@@ -305,7 +312,43 @@ Also propose up to 8 meaningful outbound relationships in the form “this quest
         max_tokens: 6500,
       },
     );
-    const proposal = parseEnrichmentProposal(unwrap(result));
+    const rawProposal = unwrap(result) as Record<string, unknown>;
+    if (
+      workingStatus !== "ANSWERED" &&
+      (!Array.isArray(rawProposal.answerAttempts) ||
+        rawProposal.answerAttempts.length === 0)
+    ) {
+      const attemptsResult = await env.AI.run(
+        "@cf/meta/llama-3.3-70b-instruct-fp8-fast",
+        {
+          messages: [
+            {
+              role: "system",
+              content:
+                "You are a bibliographic research assistant. Identify genuine published works, but never invent citations or summarize their answers.",
+            },
+            {
+              role: "user",
+              content: `Question: ${question.question_text}\nStatus: ${workingStatus}\nIdentify 1–6 genuine, historically significant works that attempted to answer or materially investigate this question. Describe only each work's approach, scope, significance, and what remained outside its scope. Do not disclose its conclusion. An empty URL is required whenever you are not certain of a credible canonical HTTPS page. Return JSON only.`,
+            },
+          ],
+          response_format: {
+            type: "json_schema",
+            json_schema: {
+              type: "object",
+              properties: {
+                answerAttempts: schema.properties.answerAttempts,
+              },
+              required: ["answerAttempts"],
+            },
+          },
+          max_tokens: 3000,
+        },
+      );
+      const fallback = unwrap(attemptsResult) as Record<string, unknown>;
+      rawProposal.answerAttempts = fallback.answerAttempts;
+    }
+    const proposal = parseEnrichmentProposal(rawProposal);
     const candidates = new Map(
       (candidatesResult.results ?? []).map((candidate) => [
         candidate.id,

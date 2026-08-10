@@ -190,7 +190,6 @@ export function parseEnrichmentProposal(value: unknown): EnrichmentProposal {
       const significance = clean(attempt.significance);
       const unresolved = clean(attempt.unresolved);
       if (
-        !url ||
         !title ||
         approach.length < 30 ||
         scope.length < 30 ||
@@ -201,6 +200,10 @@ export function parseEnrichmentProposal(value: unknown): EnrichmentProposal {
         warnings.push("One incomplete or unsafe answer attempt was omitted.");
         return [];
       }
+      if (!url)
+        warnings.push(
+          `“${title}” needs an editor-verified HTTPS source before approval.`,
+        );
       return [
         {
           title,

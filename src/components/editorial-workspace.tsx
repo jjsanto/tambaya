@@ -699,6 +699,7 @@ export function EditorialWorkspace({
             contextSummary: editorContext,
             timeline: editorTimeline,
             answerAttempts: editorAnswerAttempts,
+            verifiedStatus: editorVerifiedStatus,
             categoryId: editorCategoryId,
             sections: editorSections,
           }),
@@ -1549,6 +1550,8 @@ export function EditorialWorkspace({
                       For Open and Partially answered questions, review works
                       that investigated or proposed answers over time. Approval
                       publishes only the editorial description—not the answer.
+                      AI suggestions may omit a URL; add and verify a credible
+                      HTTPS source before approving them.
                     </p>
                     {editorAnswerAttempts.map((attempt, index) => (
                       <article className="answer-attempt-editor" key={index}>

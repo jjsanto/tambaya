@@ -74,6 +74,14 @@ describe("enrichment proposals", () => {
       confidence: 0.82,
     });
   });
+  it("keeps bibliographic attempts that still need URL verification", () => {
+    const withoutUrl = structuredClone(proposal);
+    withoutUrl.answerAttempts[0].url = "";
+    const result = parseEnrichmentProposal(withoutUrl);
+    expect(result.answerAttempts).toHaveLength(1);
+    expect(result.answerAttempts[0].url).toBe("");
+    expect(result.warnings.join(" ")).toMatch(/verified HTTPS source/);
+  });
   it("rejects an enrichment without a publishable context summary", () => {
     expect(() =>
       parseEnrichmentProposal({ ...proposal, contextSummary: "Too short" }),
