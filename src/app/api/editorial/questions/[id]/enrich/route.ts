@@ -313,11 +313,8 @@ Also propose up to 8 meaningful outbound relationships in the form “this quest
       },
     );
     const rawProposal = unwrap(result) as Record<string, unknown>;
-    if (
-      workingStatus !== "ANSWERED" &&
-      (!Array.isArray(rawProposal.answerAttempts) ||
-        rawProposal.answerAttempts.length === 0)
-    ) {
+    let proposal = parseEnrichmentProposal(rawProposal);
+    if (workingStatus !== "ANSWERED" && proposal.answerAttempts.length === 0) {
       const attemptsResult = await env.AI.run(
         "@cf/meta/llama-3.3-70b-instruct-fp8-fast",
         {
@@ -337,7 +334,11 @@ Also propose up to 8 meaningful outbound relationships in the form “this quest
             json_schema: {
               type: "object",
               properties: {
-                answerAttempts: schema.properties.answerAttempts,
+                answerAttempts: {
+                  ...schema.properties.answerAttempts,
+                  minItems: 1,
+                  maxItems: 6,
+                },
               },
               required: ["answerAttempts"],
             },
@@ -347,8 +348,8 @@ Also propose up to 8 meaningful outbound relationships in the form “this quest
       );
       const fallback = unwrap(attemptsResult) as Record<string, unknown>;
       rawProposal.answerAttempts = fallback.answerAttempts;
+      proposal = parseEnrichmentProposal(rawProposal);
     }
-    const proposal = parseEnrichmentProposal(rawProposal);
     const candidates = new Map(
       (candidatesResult.results ?? []).map((candidate) => [
         candidate.id,

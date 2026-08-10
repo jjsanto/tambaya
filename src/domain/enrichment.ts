@@ -185,21 +185,20 @@ export function parseEnrichmentProposal(value: unknown): EnrichmentProposal {
       const attempt = raw as Record<string, unknown>;
       const url = safeUrl(attempt.url);
       const title = clean(attempt.title);
-      const approach = clean(attempt.approach);
-      const scope = clean(attempt.scope);
-      const significance = clean(attempt.significance);
-      const unresolved = clean(attempt.unresolved);
-      if (
-        !title ||
-        approach.length < 30 ||
-        scope.length < 30 ||
-        significance.length < 30 ||
-        unresolved.length < 30 ||
-        [approach, scope, significance, unresolved].some(hasLikelyAnswerLeak)
-      ) {
-        warnings.push("One incomplete or unsafe answer attempt was omitted.");
-        return [];
-      }
+      if (!title) return [];
+      const editorialField = (value: unknown, label: string) => {
+        const text = clean(value);
+        if (text.length >= 30 && !hasLikelyAnswerLeak(text)) return text;
+        warnings.push(`“${title}” needs an editor to complete its ${label}.`);
+        return "";
+      };
+      const approach = editorialField(attempt.approach, "approach");
+      const scope = editorialField(attempt.scope, "scope");
+      const significance = editorialField(
+        attempt.significance,
+        "historical significance",
+      );
+      const unresolved = editorialField(attempt.unresolved, "unresolved scope");
       if (!url)
         warnings.push(
           `“${title}” needs an editor-verified HTTPS source before approval.`,

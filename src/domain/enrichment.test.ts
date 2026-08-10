@@ -82,6 +82,14 @@ describe("enrichment proposals", () => {
     expect(result.answerAttempts[0].url).toBe("");
     expect(result.warnings.join(" ")).toMatch(/verified HTTPS source/);
   });
+  it("keeps incomplete attempt titles available for editorial completion", () => {
+    const incomplete = structuredClone(proposal);
+    incomplete.answerAttempts[0].scope = "Too short";
+    const result = parseEnrichmentProposal(incomplete);
+    expect(result.answerAttempts).toHaveLength(1);
+    expect(result.answerAttempts[0].scope).toBe("");
+    expect(result.warnings.join(" ")).toMatch(/complete its scope/);
+  });
   it("rejects an enrichment without a publishable context summary", () => {
     expect(() =>
       parseEnrichmentProposal({ ...proposal, contextSummary: "Too short" }),
