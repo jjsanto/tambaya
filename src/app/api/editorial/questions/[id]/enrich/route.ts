@@ -40,7 +40,7 @@ const schema = {
         type: "object",
         properties: {
           displayDate: { type: "string" },
-          title: { type: "string" },
+          title: { type: "string", minLength: 4 },
           description: { type: "string", minLength: 60 },
         },
         required: ["displayDate", "title", "description"],
@@ -95,15 +95,15 @@ const schema = {
       items: {
         type: "object",
         properties: {
-          title: { type: "string" },
+          title: { type: "string", minLength: 4 },
           author: { type: "string" },
           publisher: { type: "string" },
           url: { type: "string" },
           publicationDate: { type: "string" },
-          approach: { type: "string" },
-          scope: { type: "string" },
-          significance: { type: "string" },
-          unresolved: { type: "string" },
+          approach: { type: "string", minLength: 30 },
+          scope: { type: "string", minLength: 30 },
+          significance: { type: "string", minLength: 30 },
+          unresolved: { type: "string", minLength: 30 },
         },
         required: [
           "title",
@@ -326,7 +326,7 @@ Also propose up to 8 meaningful outbound relationships in the form “this quest
             },
             {
               role: "user",
-              content: `Question: ${question.question_text}\nStatus: ${workingStatus}\nIdentify 1–6 genuine, historically significant works that attempted to answer or materially investigate this question. Describe only each work's approach, scope, significance, and what remained outside its scope. Do not disclose its conclusion. An empty URL is required whenever you are not certain of a credible canonical HTTPS page. Return JSON only.`,
+              content: `Question: ${question.question_text}\nStatus: ${workingStatus}\nIdentify one genuine, historically significant published work that attempted to answer or materially investigate this question. Describe only the work's approach, scope, significance, and what remained outside its scope. Do not disclose its conclusion. An empty URL is required whenever you are not certain of a credible canonical HTTPS page. You must return one bibliographic candidate for editorial verification. Return JSON only.`,
             },
           ],
           response_format: {
@@ -334,20 +334,16 @@ Also propose up to 8 meaningful outbound relationships in the form “this quest
             json_schema: {
               type: "object",
               properties: {
-                answerAttempts: {
-                  ...schema.properties.answerAttempts,
-                  minItems: 1,
-                  maxItems: 6,
-                },
+                answerAttempt: schema.properties.answerAttempts.items,
               },
-              required: ["answerAttempts"],
+              required: ["answerAttempt"],
             },
           },
           max_tokens: 3000,
         },
       );
       const fallback = unwrap(attemptsResult) as Record<string, unknown>;
-      rawProposal.answerAttempts = fallback.answerAttempts;
+      rawProposal.answerAttempts = [fallback.answerAttempt];
       proposal = parseEnrichmentProposal(rawProposal);
     }
     const candidates = new Map(
