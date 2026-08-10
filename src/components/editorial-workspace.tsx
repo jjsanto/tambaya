@@ -729,7 +729,7 @@ export function EditorialWorkspace({
       setEditorSections(result.proposal.sections);
       setAiInstruction("");
       setMessage(
-        "Proposal ready for editorial review. Verify its claims and sources, edit it, then save the private revision.",
+        `Proposal ready with ${result.proposal.answerAttempts.length} answer-attempt candidate${result.proposal.answerAttempts.length === 1 ? "" : "s"}. Verify the claims and sources, then save the private revision.`,
       );
     } catch (error) {
       setMessage(
@@ -1210,6 +1210,41 @@ export function EditorialWorkspace({
                           </ul>
                         </details>
                       )}
+                      <section className="enrichment-attempt-summary">
+                        <strong>
+                          {proposal.answerAttempts.length} answer-attempt
+                          candidate
+                          {proposal.answerAttempts.length === 1 ? "" : "s"}
+                        </strong>
+                        {proposal.answerAttempts.length > 0 ? (
+                          <>
+                            <ul>
+                              {proposal.answerAttempts.map((attempt, index) => (
+                                <li key={`${attempt.title}-${index}`}>
+                                  {attempt.title}
+                                  {!attempt.url && " · source URL required"}
+                                </li>
+                              ))}
+                            </ul>
+                            <button
+                              type="button"
+                              className="button ghost small"
+                              onClick={() =>
+                                document
+                                  .getElementById("answer-attempt-editor")
+                                  ?.scrollIntoView({ behavior: "smooth" })
+                              }
+                            >
+                              Review answer attempts
+                            </button>
+                          </>
+                        ) : (
+                          <p>
+                            No candidates were returned. This diagnostic state
+                            should not occur for an Open question.
+                          </p>
+                        )}
+                      </section>
                       <small>{proposal.warnings.join(" ")}</small>
                     </aside>
                   )}
@@ -1544,7 +1579,7 @@ export function EditorialWorkspace({
                       Add timeline event
                     </button>
                   </fieldset>
-                  <fieldset>
+                  <fieldset id="answer-attempt-editor">
                     <legend>Attempts to answer this question</legend>
                     <p>
                       For Open and Partially answered questions, review works
