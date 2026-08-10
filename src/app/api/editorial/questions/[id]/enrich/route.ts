@@ -89,6 +89,35 @@ const schema = {
         required: ["title", "publisher", "url", "purpose"],
       },
     },
+    answerAttempts: {
+      type: "array",
+      maxItems: 10,
+      items: {
+        type: "object",
+        properties: {
+          title: { type: "string" },
+          author: { type: "string" },
+          publisher: { type: "string" },
+          url: { type: "string" },
+          publicationDate: { type: "string" },
+          approach: { type: "string" },
+          scope: { type: "string" },
+          significance: { type: "string" },
+          unresolved: { type: "string" },
+        },
+        required: [
+          "title",
+          "author",
+          "publisher",
+          "url",
+          "publicationDate",
+          "approach",
+          "scope",
+          "significance",
+          "unresolved",
+        ],
+      },
+    },
     relationships: {
       type: "array",
       maxItems: 8,
@@ -132,6 +161,7 @@ const schema = {
     "statusConfidence",
     "statusRationale",
     "sourceLeads",
+    "answerAttempts",
     "relationships",
   ],
 };
@@ -255,6 +285,8 @@ Existing question candidates: ${JSON.stringify(candidatesResult.results ?? [])}
 Write a concise 45–60 word context summary, a chronological 3–8 event timeline showing how the asking changed, and 5–8 encyclopedic Story sections about the question's origins, changing vocabulary, history of inquiry, significance, appearances across fields, methodological difficulties, and lines of further inquiry. Timeline displayDate values may be a year, period, or era; each event must identify a genuine change in framing, vocabulary, audience, or method rather than an alleged answer. Each section paragraph must exceed 120 words. Explain the QUESTION and its history; do not state, imply, or summarize an answer. Never use phrases such as “the answer is”, “this proves”, or “therefore the answer”. The summary, timeline, lists, and callouts must also remain contextual.
 
 Suggest an answer-status classification only as metadata about whether sufficiently established answers exist outside Tambaya. The rationale must describe verification scope and uncertainty without disclosing any answer. Treat statusConfidence as LOW unless the supplied source records support a stronger assessment. Source leads must be credible HTTPS references for an editor to verify; never fabricate article titles or URLs.
+
+For OPEN and PARTIALLY_ANSWERED questions, propose up to 10 historically significant works that explicitly attempted to answer or materially investigate this question. For each answerAttempt, identify the bibliographic source, its approach, the aspect or scope it addressed, its historical significance, and what remained unresolved or outside its scope. Describe the attempt without revealing, endorsing, or summarizing its proposed answer. Use only credible HTTPS URLs you can identify confidently. Return an empty array rather than inventing a source. For ANSWERED questions, return an empty answerAttempts array.
 
 Also propose up to 8 meaningful outbound relationships in the form “this question RELATIONSHIP_TYPE candidate question”. Use only IDs, slugs, and exact question titles from Existing question candidates. Do not force weak connections. Give each a 0–1 confidence and a concise rationale. Return an empty relationships array if none are defensible. Return only the requested JSON.`;
   try {

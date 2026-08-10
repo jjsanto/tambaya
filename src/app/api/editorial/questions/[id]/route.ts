@@ -49,6 +49,24 @@ type EditableTimelineEvent = {
   title: string;
   description: string;
 };
+type EditableAnswerAttempt = {
+  title: string;
+  author: string;
+  publisher: string;
+  url: string;
+  publicationDate: string;
+  approach: string;
+  scope: string;
+  significance: string;
+  unresolved: string;
+};
+type AnswerAttemptRow = Omit<
+  EditableAnswerAttempt,
+  "url" | "publicationDate"
+> & {
+  source_url: string;
+  publication_date: string;
+};
 type RevisionRow = { id: string; action: string; created_at: string };
 type RevisionDraftRow = {
   snapshot_json: string;
@@ -205,6 +223,7 @@ export async function GET(
     candidatesResult,
     categoriesResult,
     timelineResult,
+    answerAttemptsResult,
   ] = await Promise.all([
     env.DB.prepare(
       "SELECT id,section_key,kicker,title,position FROM question_story_sections WHERE question_id=? ORDER BY position",
@@ -250,6 +269,11 @@ export async function GET(
     )
       .bind(id)
       .all<TimelineRow>(),
+    env.DB.prepare(
+      "SELECT title,author,publisher,source_url,publication_date,approach,scope,significance,unresolved FROM question_answer_attempts WHERE question_id=? AND verified=1 ORDER BY position",
+    )
+      .bind(id)
+      .all<AnswerAttemptRow>(),
   ]);
   const paragraphs = paragraphsResult.results ?? [];
   const blocks = blocksResult.results ?? [];
@@ -276,6 +300,7 @@ export async function GET(
         categoryId?: string;
         sections?: EditableSection[];
         timeline?: EditableTimelineEvent[];
+        answerAttempts?: EditableAnswerAttempt[];
       })
     : null;
   const workingSections = workingCopy?.sections?.map((section) => ({
@@ -303,6 +328,19 @@ export async function GET(
             displayDate: event.display_date,
             title: event.title,
             description: event.description,
+          })),
+        answerAttempts:
+          workingCopy?.answerAttempts ??
+          (answerAttemptsResult.results ?? []).map((attempt) => ({
+            title: attempt.title,
+            author: attempt.author,
+            publisher: attempt.publisher,
+            url: attempt.source_url,
+            publicationDate: attempt.publication_date,
+            approach: attempt.approach,
+            scope: attempt.scope,
+            significance: attempt.significance,
+            unresolved: attempt.unresolved,
           })),
         liveSections,
         candidates: candidatesResult.results ?? [],
@@ -437,13 +475,22 @@ export async function PATCH(
             contextSummary: draft.context_summary,
             categoryId: draft.category_id,
             sections,
-            timeline: (
-              await env.DB.prepare(
-                "SELECT display_date displayDate,title,description FROM timeline_events WHERE question_id=? ORDER BY position",
-              )
-                .bind(id)
-                .all<EditableTimelineEvent>()
-            ).results ?? [],
+            timeline:
+              (
+                await env.DB.prepare(
+                  "SELECT display_date displayDate,title,description FROM timeline_events WHERE question_id=? ORDER BY position",
+                )
+                  .bind(id)
+                  .all<EditableTimelineEvent>()
+              ).results ?? [],
+            answerAttempts:
+              (
+                await env.DB.prepare(
+                  "SELECT title,author,publisher,source_url url,publication_date publicationDate,approach,scope,significance,unresolved FROM question_answer_attempts WHERE question_id=? AND verified=1 ORDER BY position",
+                )
+                  .bind(id)
+                  .all<EditableAnswerAttempt>()
+              ).results ?? [],
           }),
         )
         .run();
@@ -498,9 +545,45 @@ export async function PATCH(
       ? body.relationships.slice(0, 8)
       : [];
     const relationships: ApprovedRelationship[] = [];
+    if (!Array.isArray(body.answerAttempts) || body.answerAttempts.length > 10)
+      return Response.json(
+        { error: "Choose up to 10 verified answer attempts." },
+        { status: 400 },
+      );
+    const answerAttempts: EditableAnswerAttempt[] = [];
+    for (const [position, raw] of body.answerAttempts.entries()) {
+      const attempt = raw as Record<string, unknown>;
+      const item = {
+        title: String(attempt.title ?? "").trim(),
+        author: String(attempt.author ?? "").trim(),
+        publisher: String(attempt.publisher ?? "").trim(),
+        url: String(attempt.url ?? "").trim(),
+        publicationDate: String(attempt.publicationDate ?? "").trim(),
+        approach: String(attempt.approach ?? "").trim(),
+        scope: String(attempt.scope ?? "").trim(),
+        significance: String(attempt.significance ?? "").trim(),
+        unresolved: String(attempt.unresolved ?? "").trim(),
+      };
+      if (
+        !item.title ||
+        !/^https:\/\//i.test(item.url) ||
+        [item.approach, item.scope, item.significance, item.unresolved].some(
+          (text) => text.length < 30 || hasLikelyAnswerLeak(text),
+        )
+      )
+        return Response.json(
+          {
+            error: `Answer attempt ${position + 1} needs a credible HTTPS source and complete answer-free editorial notes.`,
+          },
+          { status: 400 },
+        );
+      answerAttempts.push(item);
+    }
     if (!Array.isArray(body.timeline) || body.timeline.length > 12)
       return Response.json(
-        { error: "The question history must be a timeline of up to 12 events." },
+        {
+          error: "The question history must be a timeline of up to 12 events.",
+        },
         { status: 400 },
       );
     const timeline: EditableTimelineEvent[] = [];
@@ -516,7 +599,9 @@ export async function PATCH(
         hasLikelyAnswerLeak(description)
       )
         return Response.json(
-          { error: `Timeline event ${position + 1} needs a date, title, and at least 60 answer-free characters.` },
+          {
+            error: `Timeline event ${position + 1} needs a date, title, and at least 60 answer-free characters.`,
+          },
           { status: 400 },
         );
       timeline.push({ displayDate, title, description });
@@ -620,6 +705,7 @@ export async function PATCH(
       categoryId: category.id,
       sections,
       timeline,
+      answerAttempts,
       relationships,
     });
     if (isPublishedRevision) {
@@ -669,13 +755,45 @@ export async function PATCH(
       env.DB.prepare(
         "DELETE FROM question_story_sections WHERE question_id=?",
       ).bind(id),
-      env.DB.prepare("DELETE FROM timeline_events WHERE question_id=?").bind(id),
+      env.DB.prepare("DELETE FROM timeline_events WHERE question_id=?").bind(
+        id,
+      ),
+      env.DB.prepare(
+        "DELETE FROM question_answer_attempts WHERE question_id=?",
+      ).bind(id),
     ];
+    answerAttempts.forEach((attempt, position) =>
+      statements.push(
+        env.DB.prepare(
+          "INSERT INTO question_answer_attempts (id,question_id,title,author,publisher,source_url,publication_date,approach,scope,significance,unresolved,verified,position) VALUES (?,?,?,?,?,?,?,?,?,?,?,1,?)",
+        ).bind(
+          crypto.randomUUID(),
+          id,
+          attempt.title,
+          attempt.author,
+          attempt.publisher,
+          attempt.url,
+          attempt.publicationDate,
+          attempt.approach,
+          attempt.scope,
+          attempt.significance,
+          attempt.unresolved,
+          position,
+        ),
+      ),
+    );
     timeline.forEach((event, position) =>
       statements.push(
         env.DB.prepare(
           "INSERT INTO timeline_events (id,question_id,display_date,title,description,position) VALUES (?,?,?,?,?,?)",
-        ).bind(crypto.randomUUID(), id, event.displayDate, event.title, event.description, position),
+        ).bind(
+          crypto.randomUUID(),
+          id,
+          event.displayDate,
+          event.title,
+          event.description,
+          position,
+        ),
       ),
     );
     sections.forEach((section, position) => {
@@ -777,6 +895,7 @@ export async function PATCH(
       categoryId?: string;
       sections?: EditableSection[];
       timeline?: EditableTimelineEvent[];
+      answerAttempts?: EditableAnswerAttempt[];
       relationships?: ApprovedRelationship[];
     };
     if (!revised.sections || revised.sections.length < 3)
@@ -840,13 +959,45 @@ export async function PATCH(
       env.DB.prepare(
         "DELETE FROM question_story_sections WHERE question_id=?",
       ).bind(id),
-      env.DB.prepare("DELETE FROM timeline_events WHERE question_id=?").bind(id),
+      env.DB.prepare("DELETE FROM timeline_events WHERE question_id=?").bind(
+        id,
+      ),
+      env.DB.prepare(
+        "DELETE FROM question_answer_attempts WHERE question_id=?",
+      ).bind(id),
     ];
+    (revised.answerAttempts ?? []).forEach((attempt, position) =>
+      statements.push(
+        env.DB.prepare(
+          "INSERT INTO question_answer_attempts (id,question_id,title,author,publisher,source_url,publication_date,approach,scope,significance,unresolved,verified,position) VALUES (?,?,?,?,?,?,?,?,?,?,?,1,?)",
+        ).bind(
+          crypto.randomUUID(),
+          id,
+          attempt.title,
+          attempt.author,
+          attempt.publisher,
+          attempt.url,
+          attempt.publicationDate,
+          attempt.approach,
+          attempt.scope,
+          attempt.significance,
+          attempt.unresolved,
+          position,
+        ),
+      ),
+    );
     (revised.timeline ?? []).forEach((event, position) =>
       statements.push(
         env.DB.prepare(
           "INSERT INTO timeline_events (id,question_id,display_date,title,description,position) VALUES (?,?,?,?,?,?)",
-        ).bind(crypto.randomUUID(), id, event.displayDate, event.title, event.description, position),
+        ).bind(
+          crypto.randomUUID(),
+          id,
+          event.displayDate,
+          event.title,
+          event.description,
+          position,
+        ),
       ),
     );
     revised.sections.forEach((section, position) => {

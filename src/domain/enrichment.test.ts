@@ -24,6 +24,23 @@ const proposal = {
   statusRationale:
     "The available framing suggests that editorial verification should concentrate on whether an established consensus exists elsewhere.",
   sourceLeads: [],
+  answerAttempts: [
+    {
+      title: "A historical investigation",
+      author: "A. Researcher",
+      publisher: "Example University Press",
+      url: "https://example.edu/historical-investigation",
+      publicationDate: "1975",
+      approach:
+        "The work reframed the inquiry through a newly formalized experimental method.",
+      scope:
+        "It concentrated on one measurable dimension within the broader question.",
+      significance:
+        "Later researchers adopted its vocabulary and debated the limits of its method.",
+      unresolved:
+        "Other dimensions and competing interpretations remained beyond the study's stated scope.",
+    },
+  ],
   relationships: [
     {
       targetId: "q-2",
@@ -41,6 +58,7 @@ describe("enrichment proposals", () => {
     const result = parseEnrichmentProposal(proposal);
     expect(result.sections).toHaveLength(3);
     expect(result.timeline).toHaveLength(3);
+    expect(result.answerAttempts).toHaveLength(1);
     expect(result.sections[0].blocks).toHaveLength(3);
   });
   it("rejects answer leakage before it reaches the editor", () => {

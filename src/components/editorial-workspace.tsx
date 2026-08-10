@@ -32,11 +32,15 @@ type TimelineEditorEvent = {
   title: string;
   description: string;
 };
+type AnswerAttemptEditorItem = EnrichmentProposal["answerAttempts"][number] & {
+  approved: boolean;
+};
 type EditorialDetail = EditorialQuestion & {
   category_id: string;
   categories: { id: string; name: string }[];
   sections: StoryEditorSection[];
   timeline: TimelineEditorEvent[];
+  answerAttempts: EnrichmentProposal["answerAttempts"];
   liveSections: StoryEditorSection[];
   hasPendingRevision: boolean;
   revisionDraftUpdatedAt: string | null;
@@ -327,6 +331,9 @@ export function EditorialWorkspace({
   const [editorTimeline, setEditorTimeline] = useState<TimelineEditorEvent[]>(
     [],
   );
+  const [editorAnswerAttempts, setEditorAnswerAttempts] = useState<
+    AnswerAttemptEditorItem[]
+  >([]);
   const [editorCategoryId, setEditorCategoryId] = useState("");
   const [previewStory, setPreviewStory] = useState(false);
   const [proposal, setProposal] = useState<EnrichmentProposal | null>(null);
@@ -542,6 +549,12 @@ export function EditorialWorkspace({
       setEditorCategoryId(detail.category_id);
       setEditorSections(detail.sections.length ? detail.sections : defaults);
       setEditorTimeline(detail.timeline ?? []);
+      setEditorAnswerAttempts(
+        (detail.answerAttempts ?? []).map((attempt) => ({
+          ...attempt,
+          approved: true,
+        })),
+      );
       setPreviewStory(false);
       setRelationshipSuggestions(detail.relationships ?? []);
       setManualTargetId("");
@@ -685,6 +698,7 @@ export function EditorialWorkspace({
             instruction,
             contextSummary: editorContext,
             timeline: editorTimeline,
+            answerAttempts: editorAnswerAttempts,
             categoryId: editorCategoryId,
             sections: editorSections,
           }),
@@ -705,6 +719,12 @@ export function EditorialWorkspace({
       setApprovedRelationships(new Set());
       setEditorContext(result.proposal.contextSummary);
       setEditorTimeline(result.proposal.timeline);
+      setEditorAnswerAttempts(
+        result.proposal.answerAttempts.map((attempt) => ({
+          ...attempt,
+          approved: false,
+        })),
+      );
       setEditorSections(result.proposal.sections);
       setAiInstruction("");
       setMessage(
@@ -734,6 +754,9 @@ export function EditorialWorkspace({
               : "save_story",
           contextSummary: editorContext,
           timeline: editorTimeline,
+          answerAttempts: editorAnswerAttempts.filter(
+            (attempt) => attempt.approved,
+          ),
           categoryId: editorCategoryId,
           sections: editorSections,
           relationships: relationshipSuggestions.filter((relationship) =>
@@ -772,6 +795,9 @@ export function EditorialWorkspace({
           action: "save_revision",
           contextSummary: editorContext,
           timeline: editorTimeline,
+          answerAttempts: editorAnswerAttempts.filter(
+            (attempt) => attempt.approved,
+          ),
           categoryId: editorCategoryId,
           sections: editorSections,
           relationships: relationshipSuggestions.filter((relationship) =>
@@ -850,6 +876,9 @@ export function EditorialWorkspace({
           action: "save_story",
           contextSummary: editorContext,
           timeline: editorTimeline,
+          answerAttempts: editorAnswerAttempts.filter(
+            (attempt) => attempt.approved,
+          ),
           categoryId: editorCategoryId,
           sections: editorSections,
           relationships: relationshipSuggestions.filter((relationship) =>
@@ -1076,6 +1105,27 @@ export function EditorialWorkspace({
                               <p>{event.description}</p>
                             </article>
                           ))}
+                        </section>
+                      )}
+                      {editorAnswerAttempts.some(
+                        (attempt) => attempt.approved,
+                      ) && (
+                        <section>
+                          <span className="eyebrow">Intellectual history</span>
+                          <h2>Attempts to answer this question</h2>
+                          {editorAnswerAttempts
+                            .filter((attempt) => attempt.approved)
+                            .map((attempt, index) => (
+                              <article key={`${attempt.url}-${index}`}>
+                                <small>{attempt.publicationDate}</small>
+                                <h3>{attempt.title}</h3>
+                                <p>{attempt.approach}</p>
+                                <p>
+                                  <strong>What remained open:</strong>{" "}
+                                  {attempt.unresolved}
+                                </p>
+                              </article>
+                            ))}
                         </section>
                       )}
                     </section>
@@ -1417,7 +1467,10 @@ export function EditorialWorkspace({
                               setEditorTimeline((current) =>
                                 current.map((item, position) =>
                                   position === index
-                                    ? { ...item, displayDate: change.target.value }
+                                    ? {
+                                        ...item,
+                                        displayDate: change.target.value,
+                                      }
                                     : item,
                                 ),
                               )
@@ -1452,7 +1505,10 @@ export function EditorialWorkspace({
                               setEditorTimeline((current) =>
                                 current.map((item, position) =>
                                   position === index
-                                    ? { ...item, description: change.target.value }
+                                    ? {
+                                        ...item,
+                                        description: change.target.value,
+                                      }
                                     : item,
                                 ),
                               )
@@ -1464,7 +1520,9 @@ export function EditorialWorkspace({
                           className="text-link"
                           onClick={() =>
                             setEditorTimeline((current) =>
-                              current.filter((_, position) => position !== index),
+                              current.filter(
+                                (_, position) => position !== index,
+                              ),
                             )
                           }
                         >
@@ -1483,6 +1541,130 @@ export function EditorialWorkspace({
                       }
                     >
                       Add timeline event
+                    </button>
+                  </fieldset>
+                  <fieldset>
+                    <legend>Attempts to answer this question</legend>
+                    <p>
+                      For Open and Partially answered questions, review works
+                      that investigated or proposed answers over time. Approval
+                      publishes only the editorial description—not the answer.
+                    </p>
+                    {editorAnswerAttempts.map((attempt, index) => (
+                      <article className="answer-attempt-editor" key={index}>
+                        <label className="answer-attempt-approval">
+                          <input
+                            type="checkbox"
+                            checked={attempt.approved}
+                            onChange={(event) =>
+                              setEditorAnswerAttempts((current) =>
+                                current.map((item, position) =>
+                                  position === index
+                                    ? {
+                                        ...item,
+                                        approved: event.target.checked,
+                                      }
+                                    : item,
+                                ),
+                              )
+                            }
+                          />
+                          Approve this source for publication
+                        </label>
+                        {(
+                          [
+                            ["title", "Source title"],
+                            ["author", "Author"],
+                            ["publisher", "Publisher"],
+                            ["publicationDate", "Publication date or period"],
+                            ["url", "HTTPS source URL"],
+                          ] as const
+                        ).map(([field, label]) => (
+                          <label key={field}>
+                            {label}
+                            <input
+                              required={
+                                attempt.approved &&
+                                (field === "title" || field === "url")
+                              }
+                              type={field === "url" ? "url" : "text"}
+                              value={attempt[field]}
+                              onChange={(event) =>
+                                setEditorAnswerAttempts((current) =>
+                                  current.map((item, position) =>
+                                    position === index
+                                      ? { ...item, [field]: event.target.value }
+                                      : item,
+                                  ),
+                                )
+                              }
+                            />
+                          </label>
+                        ))}
+                        {(
+                          [
+                            ["approach", "Approach taken"],
+                            ["scope", "Part of the question addressed"],
+                            ["significance", "Historical significance"],
+                            ["unresolved", "What remained unresolved"],
+                          ] as const
+                        ).map(([field, label]) => (
+                          <label key={field}>
+                            {label}
+                            <textarea
+                              required={attempt.approved}
+                              minLength={30}
+                              rows={3}
+                              value={attempt[field]}
+                              onChange={(event) =>
+                                setEditorAnswerAttempts((current) =>
+                                  current.map((item, position) =>
+                                    position === index
+                                      ? { ...item, [field]: event.target.value }
+                                      : item,
+                                  ),
+                                )
+                              }
+                            />
+                          </label>
+                        ))}
+                        <button
+                          type="button"
+                          className="text-link"
+                          onClick={() =>
+                            setEditorAnswerAttempts((current) =>
+                              current.filter(
+                                (_, position) => position !== index,
+                              ),
+                            )
+                          }
+                        >
+                          Remove source
+                        </button>
+                      </article>
+                    ))}
+                    <button
+                      type="button"
+                      className="button ghost small"
+                      onClick={() =>
+                        setEditorAnswerAttempts((current) => [
+                          ...current,
+                          {
+                            approved: false,
+                            title: "",
+                            author: "",
+                            publisher: "",
+                            url: "",
+                            publicationDate: "",
+                            approach: "",
+                            scope: "",
+                            significance: "",
+                            unresolved: "",
+                          },
+                        ])
+                      }
+                    >
+                      Add answer attempt
                     </button>
                   </fieldset>
                   {editorSections.map((section, index) => (

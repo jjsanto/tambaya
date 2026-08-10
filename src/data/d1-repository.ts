@@ -33,6 +33,17 @@ type ReferenceRow = {
   source_url: string;
   purpose: QuestionReference["purpose"];
 };
+type AnswerAttemptRow = {
+  title: string;
+  author: string;
+  publisher: string;
+  source_url: string;
+  publication_date: string;
+  approach: string;
+  scope: string;
+  significance: string;
+  unresolved: string;
+};
 type TagRow = { name: string };
 type StoryRow = {
   id: string;
@@ -150,6 +161,7 @@ export class D1QuestionRepository implements QuestionRepository {
       peopleResult,
       termsResult,
       branchesResult,
+      answerAttemptsResult,
     ] = await Promise.all([
       this.db
         .prepare(
@@ -211,6 +223,12 @@ export class D1QuestionRepository implements QuestionRepository {
         )
         .bind(row.id)
         .all<BranchRow>(),
+      this.db
+        .prepare(
+          "SELECT title,author,publisher,source_url,publication_date,approach,scope,significance,unresolved FROM question_answer_attempts WHERE question_id=? AND verified=1 ORDER BY position",
+        )
+        .bind(row.id)
+        .all<AnswerAttemptRow>(),
     ]);
     const sections = new Map(
       (sectionsResult.results ?? []).map((section) => [
@@ -261,6 +279,17 @@ export class D1QuestionRepository implements QuestionRepository {
         publisher: ref.publisher,
         url: ref.source_url,
         purpose: ref.purpose,
+      })),
+      answerAttempts: (answerAttemptsResult.results ?? []).map((attempt) => ({
+        title: attempt.title,
+        author: attempt.author,
+        publisher: attempt.publisher,
+        url: attempt.source_url,
+        publicationDate: attempt.publication_date,
+        approach: attempt.approach,
+        scope: attempt.scope,
+        significance: attempt.significance,
+        unresolved: attempt.unresolved,
       })),
       storySections: (storyResult.results ?? []).map((section) => ({
         id: section.section_key,

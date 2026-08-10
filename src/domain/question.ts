@@ -84,6 +84,17 @@ export type QuestionBranch = {
   question: string;
   relationship: RelationshipType;
 };
+export type AnswerAttempt = {
+  title: string;
+  author: string;
+  publisher: string;
+  url: string;
+  publicationDate: string;
+  approach: string;
+  scope: string;
+  significance: string;
+  unresolved: string;
+};
 
 export type PublicQuestion = {
   id: string;
@@ -103,6 +114,7 @@ export type PublicQuestion = {
   whereItAppears: string;
   timeline: TimelineEvent[];
   references: QuestionReference[];
+  answerAttempts?: AnswerAttempt[];
   storySections: StorySection[];
   people: PersonAssociation[];
   keyTerms: KeyTerm[];

@@ -37,22 +37,49 @@ export default async function QuestionPage({
   let followingQuestion = false;
   let userRating = 0;
   let collections: UserCollection[] = [];
-  const publicDb=await getAuthDatabase();
-  const [publisher,ratingSummary]=publicDb?await Promise.all([publicDb.prepare("SELECT u.username FROM questions q LEFT JOIN users u ON u.id=q.publisher_id WHERE q.id=?").bind(question.id).first<{username:string|null}>(),publicDb.prepare("SELECT COUNT(*) count,COALESCE(AVG(rating),0) average FROM question_ratings WHERE question_id=?").bind(question.id).first<{count:number;average:number}>()]):[null,null];
+  const publicDb = await getAuthDatabase();
+  const [publisher, ratingSummary] = publicDb
+    ? await Promise.all([
+        publicDb
+          .prepare(
+            "SELECT u.username FROM questions q LEFT JOIN users u ON u.id=q.publisher_id WHERE q.id=?",
+          )
+          .bind(question.id)
+          .first<{ username: string | null }>(),
+        publicDb
+          .prepare(
+            "SELECT COUNT(*) count,COALESCE(AVG(rating),0) average FROM question_ratings WHERE question_id=?",
+          )
+          .bind(question.id)
+          .first<{ count: number; average: number }>(),
+      ])
+    : [null, null];
   if (user) {
     const db = await getAuthDatabase();
     if (db) {
-      const [bookmark, ownedCollections,ownRating,follow] = await Promise.all([
-        db
-          .prepare(
-            "SELECT 1 saved FROM user_bookmarks WHERE user_id=? AND question_id=?",
-          )
-          .bind(user.id, question.id)
-          .first<{ saved: number }>(),
-        getCollections(db, user.id),
-        db.prepare("SELECT rating FROM question_ratings WHERE user_id=? AND question_id=?").bind(user.id,question.id).first<{rating:number}>(),
-        db.prepare("SELECT 1 followed FROM user_question_follows WHERE user_id=? AND question_id=?").bind(user.id,question.id).first<{followed:number}>(),
-      ]);
+      const [bookmark, ownedCollections, ownRating, follow] = await Promise.all(
+        [
+          db
+            .prepare(
+              "SELECT 1 saved FROM user_bookmarks WHERE user_id=? AND question_id=?",
+            )
+            .bind(user.id, question.id)
+            .first<{ saved: number }>(),
+          getCollections(db, user.id),
+          db
+            .prepare(
+              "SELECT rating FROM question_ratings WHERE user_id=? AND question_id=?",
+            )
+            .bind(user.id, question.id)
+            .first<{ rating: number }>(),
+          db
+            .prepare(
+              "SELECT 1 followed FROM user_question_follows WHERE user_id=? AND question_id=?",
+            )
+            .bind(user.id, question.id)
+            .first<{ followed: number }>(),
+        ],
+      );
       bookmarked = Boolean(bookmark);
       collections = ownedCollections;
       userRating = ownRating?.rating ?? 0;
@@ -78,7 +105,10 @@ export default async function QuestionPage({
                 <span>{question.category}</span>
               </div>
               <h1>{question.questionText}</h1>
-              <p className="publisher-credit">Published by <strong>{publisher?.username??"Tambaya Editorial"}</strong></p>
+              <p className="publisher-credit">
+                Published by{" "}
+                <strong>{publisher?.username ?? "Tambaya Editorial"}</strong>
+              </p>
               <p>{question.contextSummary}</p>
               <div className="tag-row">
                 {question.tags.map((t) => (
@@ -101,6 +131,10 @@ export default async function QuestionPage({
         <div className="shell">
           <a href="#story">Story</a>
           <a href="#timeline">Timeline</a>
+          {(question.answerAttempts?.length ?? 0) > 0 &&
+            question.verifiedStatus !== "ANSWERED" && (
+              <a href="#answer-attempts">Answer attempts</a>
+            )}
           <a href="#connections">Connections</a>
           <a href="#references">References</a>
         </div>
@@ -113,18 +147,58 @@ export default async function QuestionPage({
           </div>
           {user ? (
             <div className="save-actions">
-              <form action="/api/ratings" method="post" className="question-rating">
+              <form
+                action="/api/ratings"
+                method="post"
+                className="question-rating"
+              >
                 <input type="hidden" name="questionId" value={question.id} />
-                <input type="hidden" name="returnTo" value={`/questions/${question.slug}`} />
-                <span>{ratingSummary?.count ? `${Number(ratingSummary.average).toFixed(1)} from ${ratingSummary.count}` : "Not rated yet"}</span>
-                <div role="group" aria-label="Rate how worth asking this question is">{[1,2,3,4,5].map(value=><button key={value} name="rating" value={value} title={`${value} out of 5`} aria-label={`${value} out of 5`} className={value<=userRating?"selected":""}>★</button>)}</div>
+                <input
+                  type="hidden"
+                  name="returnTo"
+                  value={`/questions/${question.slug}`}
+                />
+                <span>
+                  {ratingSummary?.count
+                    ? `${Number(ratingSummary.average).toFixed(1)} from ${ratingSummary.count}`
+                    : "Not rated yet"}
+                </span>
+                <div
+                  role="group"
+                  aria-label="Rate how worth asking this question is"
+                >
+                  {[1, 2, 3, 4, 5].map((value) => (
+                    <button
+                      key={value}
+                      name="rating"
+                      value={value}
+                      title={`${value} out of 5`}
+                      aria-label={`${value} out of 5`}
+                      className={value <= userRating ? "selected" : ""}
+                    >
+                      ★
+                    </button>
+                  ))}
+                </div>
               </form>
               <form action="/api/follows" method="post">
                 <input type="hidden" name="targetType" value="question" />
                 <input type="hidden" name="targetId" value={question.id} />
-                <input type="hidden" name="action" value={followingQuestion ? "remove" : "add"} />
-                <input type="hidden" name="returnTo" value={`/questions/${question.slug}`} />
-                <button className={`button small ${followingQuestion ? "ghost" : ""}`}>{followingQuestion ? "✓ Following" : "+ Follow"}</button>
+                <input
+                  type="hidden"
+                  name="action"
+                  value={followingQuestion ? "remove" : "add"}
+                />
+                <input
+                  type="hidden"
+                  name="returnTo"
+                  value={`/questions/${question.slug}`}
+                />
+                <button
+                  className={`button small ${followingQuestion ? "ghost" : ""}`}
+                >
+                  {followingQuestion ? "✓ Following" : "+ Follow"}
+                </button>
               </form>
               <form action="/api/bookmarks" method="post">
                 <input type="hidden" name="questionId" value={question.id} />
@@ -276,6 +350,56 @@ export default async function QuestionPage({
           </div>
         </div>
       </section>
+      {(question.answerAttempts?.length ?? 0) > 0 &&
+        question.verifiedStatus !== "ANSWERED" && (
+          <section id="answer-attempts" className="answer-attempts shell">
+            <span className="eyebrow">Intellectual history</span>
+            <h2>Attempts to answer this question</h2>
+            <p className="lead">
+              These sources have investigated or proposed answers to parts of
+              the question. Tambaya records their scope and influence without
+              endorsing or reproducing their conclusions.
+            </p>
+            <div className="answer-attempt-list">
+              {question.answerAttempts?.map((attempt, index) => (
+                <article key={`${attempt.url}-${index}`}>
+                  <header>
+                    <span>
+                      {attempt.publicationDate || "Date not recorded"}
+                    </span>
+                    <h3>{attempt.title}</h3>
+                    <small>
+                      {[attempt.author, attempt.publisher]
+                        .filter(Boolean)
+                        .join(" · ")}
+                    </small>
+                  </header>
+                  <dl>
+                    <div>
+                      <dt>Approach</dt>
+                      <dd>{attempt.approach}</dd>
+                    </div>
+                    <div>
+                      <dt>Scope addressed</dt>
+                      <dd>{attempt.scope}</dd>
+                    </div>
+                    <div>
+                      <dt>Historical significance</dt>
+                      <dd>{attempt.significance}</dd>
+                    </div>
+                    <div>
+                      <dt>What remained open</dt>
+                      <dd>{attempt.unresolved}</dd>
+                    </div>
+                  </dl>
+                  <a href={attempt.url} target="_blank" rel="noreferrer">
+                    Examine the source ↗
+                  </a>
+                </article>
+              ))}
+            </div>
+          </section>
+        )}
       <section id="connections" className="section shell">
         <div className="section-head">
           <div>
@@ -289,7 +413,9 @@ export default async function QuestionPage({
             <div className="question-grid">
               {related.map(({ question: q, edge }) => (
                 <div key={q.id} className="related-wrap">
-                  <span className="relation">{edge.type.replaceAll("_", " ")}</span>
+                  <span className="relation">
+                    {edge.type.replaceAll("_", " ")}
+                  </span>
                   <QuestionCard question={q} />
                 </div>
               ))}

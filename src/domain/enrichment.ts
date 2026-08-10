@@ -32,6 +32,17 @@ export type EnrichmentProposal = {
     url: string;
     purpose: string;
   }[];
+  answerAttempts: {
+    title: string;
+    author: string;
+    publisher: string;
+    url: string;
+    publicationDate: string;
+    approach: string;
+    scope: string;
+    significance: string;
+    unresolved: string;
+  }[];
   relationships: {
     targetId: string;
     targetSlug: string;
@@ -87,7 +98,9 @@ export function parseEnrichmentProposal(value: unknown): EnrichmentProposal {
       description.length < 60 ||
       hasLikelyAnswerLeak(description)
     )
-      throw new Error(`AI timeline event ${index + 1} is incomplete or unsafe.`);
+      throw new Error(
+        `AI timeline event ${index + 1} is incomplete or unsafe.`,
+      );
     return { displayDate, title, description };
   });
   const sections = candidate.sections.map((raw, index) => {
@@ -164,6 +177,44 @@ export function parseEnrichmentProposal(value: unknown): EnrichmentProposal {
         },
       ];
     });
+  const answerAttempts = (
+    Array.isArray(candidate.answerAttempts) ? candidate.answerAttempts : []
+  )
+    .slice(0, 10)
+    .flatMap((raw) => {
+      const attempt = raw as Record<string, unknown>;
+      const url = safeUrl(attempt.url);
+      const title = clean(attempt.title);
+      const approach = clean(attempt.approach);
+      const scope = clean(attempt.scope);
+      const significance = clean(attempt.significance);
+      const unresolved = clean(attempt.unresolved);
+      if (
+        !url ||
+        !title ||
+        approach.length < 30 ||
+        scope.length < 30 ||
+        significance.length < 30 ||
+        unresolved.length < 30 ||
+        [approach, scope, significance, unresolved].some(hasLikelyAnswerLeak)
+      ) {
+        warnings.push("One incomplete or unsafe answer attempt was omitted.");
+        return [];
+      }
+      return [
+        {
+          title,
+          author: clean(attempt.author),
+          publisher: clean(attempt.publisher),
+          url,
+          publicationDate: clean(attempt.publicationDate),
+          approach,
+          scope,
+          significance,
+          unresolved,
+        },
+      ];
+    });
   const relationships = (
     Array.isArray(candidate.relationships) ? candidate.relationships : []
   )
@@ -206,6 +257,7 @@ export function parseEnrichmentProposal(value: unknown): EnrichmentProposal {
       : "LOW",
     statusRationale: rationale,
     sourceLeads,
+    answerAttempts,
     relationships,
     warnings,
   };
