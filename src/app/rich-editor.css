@@ -19,10 +19,17 @@
 .enrichment-panel h4 { margin: 3px 0 5px; color: var(--navy); font-family: var(--font-serif); font-size: 20px; }
 .enrichment-panel p { margin: 0; max-width: 610px; color: var(--muted); font-size: 13px; }
 .enrichment-panel button { flex: 0 0 auto; }
+.publication-checklist { display: grid; gap: 8px; padding: 18px; border: 1px solid currentColor; }
+.publication-checklist h4, .publication-checklist p { margin: 0; }
+.publication-checklist h4 { color: var(--navy); font: 500 20px var(--font-serif); }
+.publication-checklist ul { display: grid; gap: 10px; margin: 4px 0 0; padding: 0; list-style: none; }
+.publication-checklist li { display: grid; grid-template-columns: minmax(130px,auto) 1fr; align-items: baseline; gap: 12px; }
+.publication-checklist li button { justify-self: start; font-weight: 800; }
+.publication-checklist li span { color: var(--text); font-size: 13px; line-height: 1.5; }
 .enrichment-review { display: grid; gap: 10px; padding: 16px 18px; border-left: 4px solid var(--gold); background: #f7f8fb; }
 .enrichment-review > div { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
 .enrichment-review span { padding: 4px 8px; background: white; border: 1px solid var(--line); text-transform: uppercase; font-size: 9px; font-weight: 800; }
 .enrichment-review p,.enrichment-review small { margin: 0; }
 .enrichment-review summary { cursor: pointer; color: var(--navy); font-weight: 700; }
 .enrichment-review a { color: var(--navy); }
-@media (max-width: 620px) { .enrichment-panel { align-items: stretch; flex-direction: column; } }
+@media (max-width: 620px) { .enrichment-panel { align-items: stretch; flex-direction: column; } .publication-checklist li { grid-template-columns: 1fr; gap: 2px; } }

@@ -3,6 +3,7 @@
 import { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
 import { countWords, type StoryBlock } from "@/domain/question";
 import type { EnrichmentProposal } from "@/domain/enrichment";
+import { evaluateEditorialQuality } from "@/domain/editorial-quality";
 import { StoryBlocks } from "@/components/story-blocks";
 
 type EditorialQuestion = {
@@ -20,6 +21,7 @@ type EditorialQuestion = {
   timeline_count: number;
   term_count: number;
   source_count: number;
+  reference_count?: number;
   relationship_count: number;
   submission_state: string | null;
   review_notes: string | null;
@@ -88,9 +90,9 @@ function qualityChecks(question: EditorialQuestion) {
     { key: "summary", label: "Summary", pass: question.context_summary.length >= 150 && countWords(question.context_summary) <= 60 },
     { key: "story", label: "Story", pass: question.section_count >= 5 },
     { key: "timeline", label: "Timeline", pass: question.timeline_count >= 3 },
-    { key: "terms", label: "Terms", pass: question.term_count >= 2 },
+    { key: "terms", label: question.term_count ? "Terms" : "Terms optional", pass: true },
     { key: "sources", label: "Sources", pass: question.source_count >= 1 },
-    { key: "connections", label: "Connections", pass: question.relationship_count >= 1 },
+    { key: "connections", label: question.relationship_count ? "Connections" : "Connections optional", pass: true },
   ];
 }
 
@@ -382,12 +384,45 @@ export function EditorialWorkspace({
 
   const filteredQuestions = useMemo(() => questions.filter((question) => {
     const checks = qualityChecks(question);
-    const editoriallyReady = checks.slice(0, 5).every((check) => check.pass);
+    const editoriallyReady = checks
+      .filter((check) => ["summary", "story", "timeline", "sources"].includes(check.key))
+      .every((check) => check.pass);
     return (!queueCategory || question.category_name === queueCategory) &&
       (!queueStatus || (question.verified_status ?? question.claimed_status) === queueStatus) &&
       (!queueBatch || batchLabel(question) === queueBatch) &&
       (!queueReadiness || (queueReadiness === "ready" ? editoriallyReady : !editoriallyReady));
   }), [questions, queueBatch, queueCategory, queueReadiness, queueStatus]);
+
+  const workingQuality = useMemo(() => {
+    if (!editing) return null;
+    const approvedSourceCount = editorAnswerAttempts.filter(
+      (attempt) => attempt.approved && /^https:\/\//i.test(attempt.url.trim()),
+    ).length;
+    return evaluateEditorialQuality({
+      contextSummary: editorContext,
+      verifiedStatus: editorVerifiedStatus,
+      sections: editorSections,
+      timeline: editorTimeline,
+      keyTerms: editorKeyTerms,
+      verifiedSourceCount: (editing.reference_count ?? 0) + approvedSourceCount,
+      pendingConnectionCount: relationshipSuggestions.filter(
+        (relationship) =>
+          !approvedRelationships.has(
+            `${relationship.targetId}:${relationship.type}`,
+          ),
+      ).length,
+    });
+  }, [
+    approvedRelationships,
+    editing,
+    editorAnswerAttempts,
+    editorContext,
+    editorKeyTerms,
+    editorSections,
+    editorTimeline,
+    editorVerifiedStatus,
+    relationshipSuggestions,
+  ]);
 
   useEffect(() => {
     const timer = window.setTimeout(
@@ -1225,6 +1260,47 @@ export function EditorialWorkspace({
                       )}
                     </section>
                   )}
+                  {workingQuality && (
+                    <aside
+                      className={`publication-checklist ${workingQuality.ready ? "quality-pass" : "quality-missing"}`}
+                      aria-live="polite"
+                    >
+                      <span className="eyebrow">Publication gate</span>
+                      <h4>
+                        {workingQuality.ready
+                          ? "Ready to publish"
+                          : `${workingQuality.blockers.length} requirement${workingQuality.blockers.length === 1 ? "" : "s"} remaining`}
+                      </h4>
+                      {workingQuality.ready ? (
+                        <p>
+                          The working copy passes the Story, history, source,
+                          status, connection-review, and answer-safety checks.
+                        </p>
+                      ) : (
+                        <ul>
+                          {workingQuality.blockers.map((blocker) => (
+                            <li key={blocker.code}>
+                              <button
+                                type="button"
+                                className="text-link"
+                                onClick={() =>
+                                  document
+                                    .getElementById(blocker.anchor)
+                                    ?.scrollIntoView({
+                                      behavior: "smooth",
+                                      block: "center",
+                                    })
+                                }
+                              >
+                                {blocker.label}
+                              </button>
+                              <span>{blocker.message}</span>
+                            </li>
+                          ))}
+                        </ul>
+                      )}
+                    </aside>
+                  )}
                   <section className="enrichment-panel">
                     <div>
                       <span className="eyebrow">AI-assisted draft</span>
@@ -1346,7 +1422,10 @@ export function EditorialWorkspace({
                       <small>{proposal.warnings.join(" ")}</small>
                     </aside>
                   )}
-                  <section className="relationship-proposals">
+                  <section
+                    className="relationship-proposals"
+                    id="quality-connections"
+                  >
                     <div>
                       <span className="eyebrow">Question graph</span>
                       <h4>Approve proposed connections</h4>
@@ -1562,7 +1641,7 @@ export function EditorialWorkspace({
                       </select>
                     </label>
                   </fieldset>
-                  <fieldset>
+                  <fieldset id="quality-summary">
                     <legend>Context summary</legend>
                     <label>
                       Encyclopedic overview
@@ -1582,7 +1661,7 @@ export function EditorialWorkspace({
                       </small>
                     </label>
                   </fieldset>
-                  <fieldset>
+                  <fieldset id="quality-terms">
                     <legend>Terms that shape the question</legend>
                     <p>
                       Define only vocabulary that materially changes how this
@@ -1659,7 +1738,7 @@ export function EditorialWorkspace({
                       Add key term
                     </button>
                   </fieldset>
-                  <fieldset>
+                  <fieldset id="quality-timeline">
                     <legend>How the asking changed</legend>
                     <p>
                       Build the chronological history shown on the public
@@ -1881,7 +1960,10 @@ export function EditorialWorkspace({
                     </button>
                   </fieldset>
                   {editorSections.map((section, index) => (
-                    <fieldset key={`${section.key}-${index}`}>
+                    <fieldset
+                      key={`${section.key}-${index}`}
+                      id={index === 0 ? "quality-story" : undefined}
+                    >
                       <legend>Section {index + 1}</legend>
                       <label>
                         Kicker
@@ -1980,6 +2062,7 @@ export function EditorialWorkspace({
                     <span>
                       {editing.publication_state === "DRAFT" && (
                         <select
+                          id="quality-status"
                           aria-label="Verified answer status"
                           value={editorVerifiedStatus}
                           onChange={(event) =>
@@ -2013,7 +2096,7 @@ export function EditorialWorkspace({
                           <button
                             className="button small publish-revision"
                             type="button"
-                            disabled={busy}
+                            disabled={busy || !workingQuality?.ready}
                             onClick={() => void saveAndPublish()}
                           >
                             Save &amp; publish
@@ -2021,7 +2104,11 @@ export function EditorialWorkspace({
                           <button
                             className="button small"
                             type="button"
-                            disabled={busy || filteredQuestions.length < 2}
+                            disabled={
+                              busy ||
+                              !workingQuality?.ready ||
+                              filteredQuestions.length < 2
+                            }
                             onClick={() => void saveAndPublish(true)}
                           >
                             Approve &amp; open next
@@ -2033,7 +2120,7 @@ export function EditorialWorkspace({
                           <button
                             className="button small publish-revision"
                             type="button"
-                            disabled={busy}
+                            disabled={busy || !workingQuality?.ready}
                             onClick={() => void publishRevision()}
                           >
                             Publish revision

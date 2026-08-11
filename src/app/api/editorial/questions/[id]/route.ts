@@ -2,7 +2,6 @@ import { getCloudflareContext } from "@opennextjs/cloudflare";
 import {
   countWords,
   hasLikelyAnswerLeak,
-  isAnswerStatus,
   isRelationshipType,
   type RelationshipType,
   type StoryBlock,
@@ -15,15 +14,23 @@ import {
 import type { CloudflareBindings } from "@/types/cloudflare";
 import { eventStatement } from "@/lib/submission-events";
 import { isUsefulKeyTermDescription } from "@/domain/enrichment";
+import { evaluateEditorialQuality } from "@/domain/editorial-quality";
 
 type DraftRow = {
   id: string;
   question_text: string;
   context_summary: string;
   category_id: string;
+  verified_status: string | null;
   publication_state: string;
   submission_state: string | null;
   editorial_outcome: string | null;
+  section_count?: number;
+  timeline_count?: number;
+  term_count?: number;
+  source_count?: number;
+  reference_count?: number;
+  relationship_count?: number;
 };
 type SectionRow = {
   id: string;
@@ -104,6 +111,18 @@ type CandidateQuestion = {
   questionText: string;
   category: string;
 };
+
+function publicationBlocked(
+  blockers: ReturnType<typeof evaluateEditorialQuality>["blockers"],
+) {
+  return Response.json(
+    {
+      error: `Publication blocked: ${blockers.map((item) => item.message).join(" ")}`,
+      blockers,
+    },
+    { status: 400 },
+  );
+}
 
 function normalizeBlocks(value: unknown): StoryBlock[] | null {
   if (!Array.isArray(value) || value.length > 40) return null;
@@ -209,7 +228,7 @@ export async function GET(
   if (!(await hasEditorialAccess(request, env))) return unauthorized();
   const { id } = await params;
   const question = await env.DB.prepare(
-    "SELECT id,question_text,context_summary,category_id,publication_state,submission_state,editorial_outcome FROM questions WHERE id=?",
+    "SELECT q.id,q.question_text,q.context_summary,q.category_id,q.publication_state,q.submission_state,q.editorial_outcome,q.verified_status,(SELECT COUNT(*) FROM question_story_sections s WHERE s.question_id=q.id) section_count,(SELECT COUNT(*) FROM timeline_events t WHERE t.question_id=q.id) timeline_count,(SELECT COUNT(*) FROM question_key_terms k WHERE k.question_id=q.id) term_count,(SELECT COUNT(*) FROM question_references r WHERE r.question_id=q.id AND r.source_url LIKE 'https://%') reference_count,((SELECT COUNT(*) FROM question_references r WHERE r.question_id=q.id AND r.source_url LIKE 'https://%')+(SELECT COUNT(*) FROM question_answer_attempts a WHERE a.question_id=q.id AND a.verified=1 AND a.source_url LIKE 'https://%')) source_count,(SELECT COUNT(*) FROM question_relationships rel WHERE rel.source_question_id=q.id AND rel.verified=1) relationship_count FROM questions q WHERE q.id=?",
   )
     .bind(id)
     .first<DraftRow>();
@@ -376,7 +395,7 @@ export async function PATCH(
   const { id } = await params;
   const body = (await request.json()) as Record<string, unknown>;
   const draft = await env.DB.prepare(
-    "SELECT id,question_text,context_summary,category_id,publication_state,submission_state,editorial_outcome FROM questions WHERE id=?",
+    "SELECT id,question_text,context_summary,category_id,publication_state,submission_state,editorial_outcome,verified_status FROM questions WHERE id=?",
   )
     .bind(id)
     .first<DraftRow>();
@@ -955,24 +974,27 @@ export async function PATCH(
       keyTerms?: EditableKeyTerm[];
       relationships?: ApprovedRelationship[];
     };
-    if (!revised.sections || revised.sections.length < 3)
-      return Response.json(
-        { error: "The revision needs at least three Story sections." },
-        { status: 400 },
-      );
-    if (
-      !revised.contextSummary ||
-      revised.contextSummary.length < 150 ||
-      countWords(revised.contextSummary) > 60 ||
-      hasLikelyAnswerLeak(revised.contextSummary)
+    const referenceCount = await env.DB.prepare(
+      "SELECT COUNT(*) count FROM question_references WHERE question_id=? AND source_url LIKE 'https://%'",
     )
-      return Response.json(
-        {
-          error:
-            "The revision context summary must contain at least 150 characters, remain answer-free, and use no more than 60 words.",
-        },
-        { status: 400 },
-      );
+      .bind(id)
+      .first<{ count: number }>();
+    const revisionQuality = evaluateEditorialQuality({
+      contextSummary: revised.contextSummary ?? "",
+      verifiedStatus: draft.verified_status,
+      sections: revised.sections ?? [],
+      timeline: revised.timeline ?? [],
+      keyTerms: revised.keyTerms ?? [],
+      verifiedSourceCount:
+        (referenceCount?.count ?? 0) +
+        (revised.answerAttempts ?? []).filter((attempt) =>
+          /^https:\/\//i.test(attempt.url),
+        ).length,
+      pendingConnectionCount: 0,
+    });
+    if (!revisionQuality.ready)
+      return publicationBlocked(revisionQuality.blockers);
+    const revisedSections = revised.sections ?? [];
     const revisedCategory = await env.DB.prepare(
       "SELECT id,name FROM categories WHERE id=?",
     )
@@ -1067,7 +1089,7 @@ export async function PATCH(
         ),
       ),
     );
-    revised.sections.forEach((section, position) => {
+    revisedSections.forEach((section, position) => {
       const sectionId = crypto.randomUUID();
       statements.push(
         env.DB.prepare(
@@ -1114,7 +1136,7 @@ export async function PATCH(
         id,
         JSON.stringify({
           previousSections,
-          publishedSections: revised.sections,
+          publishedSections: revisedSections,
         }),
       ),
     );
@@ -1198,35 +1220,46 @@ export async function PATCH(
       },
       { status: 409 },
     );
-  if (!isAnswerStatus(body.verifiedStatus))
-    return Response.json(
-      { error: "Choose a verified status before publishing." },
-      { status: 400 },
-    );
-  if (
-    draft.context_summary.trim().length < 150 ||
-    countWords(draft.context_summary) > 60 ||
-    hasLikelyAnswerLeak(draft.context_summary)
-  )
-    return Response.json(
-      {
-        error:
-          "The context summary must contain at least 150 characters, remain answer-free, and use no more than 60 words.",
-      },
-      { status: 400 },
-    );
-  const storyCount = await env.DB.prepare(
-    "SELECT COUNT(*) count FROM question_story_sections WHERE question_id=?",
-  )
-    .bind(id)
-    .first<{ count: number }>();
-  if ((storyCount?.count ?? 0) < 3)
-    return Response.json(
-      {
-        error: "Add at least three reviewed Story sections before publishing.",
-      },
-      { status: 400 },
-    );
+  const [qualitySections, qualityParagraphs, qualityTimeline, qualityTerms, sourceCount, pendingConnections] =
+    await Promise.all([
+      env.DB.prepare(
+        "SELECT id,section_key,kicker,title,position FROM question_story_sections WHERE question_id=? ORDER BY position",
+      ).bind(id).all<SectionRow>(),
+      env.DB.prepare(
+        "SELECT p.section_id,p.body,p.position FROM question_story_paragraphs p JOIN question_story_sections s ON s.id=p.section_id WHERE s.question_id=? ORDER BY s.position,p.position",
+      ).bind(id).all<ParagraphRow>(),
+      env.DB.prepare(
+        "SELECT display_date,title,description,position FROM timeline_events WHERE question_id=? ORDER BY position",
+      ).bind(id).all<TimelineRow>(),
+      env.DB.prepare(
+        "SELECT term,description FROM question_key_terms WHERE question_id=? ORDER BY position",
+      ).bind(id).all<EditableKeyTerm>(),
+      env.DB.prepare(
+        "SELECT ((SELECT COUNT(*) FROM question_references WHERE question_id=? AND source_url LIKE 'https://%')+(SELECT COUNT(*) FROM question_answer_attempts WHERE question_id=? AND verified=1 AND source_url LIKE 'https://%')) count",
+      ).bind(id, id).first<{ count: number }>(),
+      env.DB.prepare(
+        "SELECT COUNT(*) count FROM question_relationships WHERE source_question_id=? AND created_by='AI_ASSISTED' AND verified=0",
+      ).bind(id).first<{ count: number }>(),
+    ]);
+  const paragraphRows = qualityParagraphs.results ?? [];
+  const quality = evaluateEditorialQuality({
+    contextSummary: draft.context_summary,
+    verifiedStatus: String(body.verifiedStatus ?? ""),
+    sections: (qualitySections.results ?? []).map((section) => ({
+      paragraphs: paragraphRows
+        .filter((paragraph) => paragraph.section_id === section.id)
+        .map((paragraph) => paragraph.body),
+    })),
+    timeline: (qualityTimeline.results ?? []).map((event) => ({
+      displayDate: event.display_date,
+      title: event.title,
+      description: event.description,
+    })),
+    keyTerms: qualityTerms.results ?? [],
+    verifiedSourceCount: sourceCount?.count ?? 0,
+    pendingConnectionCount: pendingConnections?.count ?? 0,
+  });
+  if (!quality.ready) return publicationBlocked(quality.blockers);
   await env.DB.batch([
     env.DB.prepare(
       "UPDATE question_content_sections SET publication_state='PUBLISHED',answer_leak_state='PASSED',reviewed_by='EDITORIAL',reviewed_at=CURRENT_TIMESTAMP,updated_at=CURRENT_TIMESTAMP WHERE question_id=? AND section_type='SUMMARY'",
