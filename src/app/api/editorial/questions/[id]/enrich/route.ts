@@ -314,7 +314,7 @@ Also propose up to 8 meaningful outbound relationships in the form “this quest
     );
     const rawProposal = unwrap(result) as Record<string, unknown>;
     let proposal = parseEnrichmentProposal(rawProposal);
-    if (workingStatus !== "ANSWERED" && proposal.answerAttempts.length === 0) {
+    if (proposal.answerAttempts.length === 0) {
       const attemptsResult = await env.AI.run(
         "@cf/meta/llama-3.3-70b-instruct-fp8-fast",
         {
@@ -345,6 +345,39 @@ Also propose up to 8 meaningful outbound relationships in the form “this quest
       const fallback = unwrap(attemptsResult) as Record<string, unknown>;
       rawProposal.answerAttempts = [fallback.answerAttempt];
       proposal = parseEnrichmentProposal(rawProposal);
+    }
+    if (proposal.answerAttempts.length === 0) {
+      const existingReference = (references.results ?? [])[0];
+      const sourceLead = proposal.sourceLeads[0];
+      const candidate = existingReference
+        ? {
+            title: existingReference.title,
+            publisher: existingReference.publisher,
+            url: existingReference.source_url,
+          }
+        : sourceLead
+          ? {
+              title: sourceLead.title,
+              publisher: sourceLead.publisher,
+              url: sourceLead.url,
+            }
+          : null;
+      if (candidate) {
+        proposal.answerAttempts.push({
+          title: candidate.title,
+          author: "",
+          publisher: candidate.publisher,
+          url: candidate.url,
+          publicationDate: "",
+          approach: "",
+          scope: "",
+          significance: "",
+          unresolved: "",
+        });
+        proposal.warnings.push(
+          `“${candidate.title}” was recovered from the question's existing references because AI returned no usable answer attempt. Verify whether it is genuinely an answer attempt and complete every editorial field before approval.`,
+        );
+      }
     }
     const candidates = new Map(
       (candidatesResult.results ?? []).map((candidate) => [
