@@ -14,6 +14,7 @@ import {
 } from "@/lib/editorial-auth";
 import type { CloudflareBindings } from "@/types/cloudflare";
 import { eventStatement } from "@/lib/submission-events";
+import { isUsefulKeyTermDescription } from "@/domain/enrichment";
 
 type DraftRow = {
   id: string;
@@ -60,6 +61,7 @@ type EditableAnswerAttempt = {
   significance: string;
   unresolved: string;
 };
+type EditableKeyTerm = { term: string; description: string };
 type AnswerAttemptRow = Omit<
   EditableAnswerAttempt,
   "url" | "publicationDate"
@@ -223,6 +225,7 @@ export async function GET(
     candidatesResult,
     categoriesResult,
     timelineResult,
+    keyTermsResult,
     answerAttemptsResult,
   ] = await Promise.all([
     env.DB.prepare(
@@ -270,6 +273,9 @@ export async function GET(
       .bind(id)
       .all<TimelineRow>(),
     env.DB.prepare(
+      "SELECT term,description FROM question_key_terms WHERE question_id=? ORDER BY position",
+    ).bind(id).all<EditableKeyTerm>(),
+    env.DB.prepare(
       "SELECT title,author,publisher,source_url,publication_date,approach,scope,significance,unresolved FROM question_answer_attempts WHERE question_id=? AND verified=1 ORDER BY position",
     )
       .bind(id)
@@ -300,6 +306,7 @@ export async function GET(
         categoryId?: string;
         sections?: EditableSection[];
         timeline?: EditableTimelineEvent[];
+        keyTerms?: EditableKeyTerm[];
         answerAttempts?: EditableAnswerAttempt[];
       })
     : null;
@@ -329,6 +336,7 @@ export async function GET(
             title: event.title,
             description: event.description,
           })),
+        keyTerms: workingCopy?.keyTerms ?? keyTermsResult.results ?? [],
         answerAttempts:
           workingCopy?.answerAttempts ??
           (answerAttemptsResult.results ?? []).map((attempt) => ({
@@ -483,6 +491,12 @@ export async function PATCH(
                   .bind(id)
                   .all<EditableTimelineEvent>()
               ).results ?? [],
+            keyTerms:
+              (
+                await env.DB.prepare(
+                  "SELECT term,description FROM question_key_terms WHERE question_id=? ORDER BY position",
+                ).bind(id).all<EditableKeyTerm>()
+              ).results ?? [],
             answerAttempts:
               (
                 await env.DB.prepare(
@@ -545,6 +559,37 @@ export async function PATCH(
       ? body.relationships.slice(0, 8)
       : [];
     const relationships: ApprovedRelationship[] = [];
+    if (!Array.isArray(body.keyTerms) || body.keyTerms.length > 8)
+      return Response.json(
+        { error: "Provide up to eight question-specific key terms." },
+        { status: 400 },
+      );
+    const keyTerms: EditableKeyTerm[] = [];
+    for (const [position, raw] of body.keyTerms.entries()) {
+      const item = raw as Record<string, unknown>;
+      const term = String(item.term ?? "").trim();
+      const description = String(item.description ?? "").trim();
+      if (
+        term.length < 2 ||
+        term.length > 80 ||
+        !isUsefulKeyTermDescription(description)
+      )
+        return Response.json(
+          {
+            error: `Key term ${position + 1} needs a concrete, question-specific definition of at least 80 characters.`,
+          },
+          { status: 400 },
+        );
+      keyTerms.push({ term, description });
+    }
+    if (
+      new Set(keyTerms.map((item) => item.term.toLowerCase())).size !==
+      keyTerms.length
+    )
+      return Response.json(
+        { error: "Key terms must be unique." },
+        { status: 400 },
+      );
     if (!Array.isArray(body.answerAttempts) || body.answerAttempts.length > 10)
       return Response.json(
         { error: "Choose up to 10 verified answer attempts." },
@@ -706,6 +751,7 @@ export async function PATCH(
       sections,
       timeline,
       answerAttempts,
+      keyTerms,
       relationships,
     });
     if (isPublishedRevision) {
@@ -761,7 +807,17 @@ export async function PATCH(
       env.DB.prepare(
         "DELETE FROM question_answer_attempts WHERE question_id=?",
       ).bind(id),
+      env.DB.prepare("DELETE FROM question_key_terms WHERE question_id=?").bind(
+        id,
+      ),
     ];
+    keyTerms.forEach((item, position) =>
+      statements.push(
+        env.DB.prepare(
+          "INSERT INTO question_key_terms (id,question_id,term,description,position) VALUES (?,?,?,?,?)",
+        ).bind(crypto.randomUUID(), id, item.term, item.description, position),
+      ),
+    );
     answerAttempts.forEach((attempt, position) =>
       statements.push(
         env.DB.prepare(
@@ -896,6 +952,7 @@ export async function PATCH(
       sections?: EditableSection[];
       timeline?: EditableTimelineEvent[];
       answerAttempts?: EditableAnswerAttempt[];
+      keyTerms?: EditableKeyTerm[];
       relationships?: ApprovedRelationship[];
     };
     if (!revised.sections || revised.sections.length < 3)
@@ -965,7 +1022,17 @@ export async function PATCH(
       env.DB.prepare(
         "DELETE FROM question_answer_attempts WHERE question_id=?",
       ).bind(id),
+      env.DB.prepare("DELETE FROM question_key_terms WHERE question_id=?").bind(
+        id,
+      ),
     ];
+    (revised.keyTerms ?? []).forEach((item, position) =>
+      statements.push(
+        env.DB.prepare(
+          "INSERT INTO question_key_terms (id,question_id,term,description,position) VALUES (?,?,?,?,?)",
+        ).bind(crypto.randomUUID(), id, item.term, item.description, position),
+      ),
+    );
     (revised.answerAttempts ?? []).forEach((attempt, position) =>
       statements.push(
         env.DB.prepare(

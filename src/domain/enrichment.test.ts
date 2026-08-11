@@ -19,6 +19,13 @@ const proposal = {
     listItems: ["A tradition to investigate"],
     callout: "This proposal maps the question without resolving it.",
   })),
+  keyTerms: [
+    {
+      term: "Operational definition",
+      description:
+        "A rule connecting an abstract idea to observable procedures; here it determines which versions of the question can be investigated and which remain outside a particular study.",
+    },
+  ],
   suggestedStatus: "OPEN",
   statusConfidence: "LOW",
   statusRationale:
@@ -60,6 +67,13 @@ describe("enrichment proposals", () => {
     expect(result.timeline).toHaveLength(3);
     expect(result.answerAttempts).toHaveLength(1);
     expect(result.sections[0].blocks).toHaveLength(3);
+    expect(result.keyTerms).toHaveLength(1);
+  });
+  it("rejects reusable generic key-term descriptions", () => {
+    const generic = structuredClone(proposal);
+    generic.keyTerms[0].description =
+      "A recurring concept whose meaning varies across methods, settings, contexts, and communities involved in this question.";
+    expect(() => parseEnrichmentProposal(generic)).toThrow(/key term/i);
   });
   it("rejects answer leakage before it reaches the editor", () => {
     const unsafe = structuredClone(proposal);

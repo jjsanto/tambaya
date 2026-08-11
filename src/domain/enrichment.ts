@@ -23,6 +23,7 @@ export type EnrichmentProposal = {
     description: string;
   }[];
   sections: EnrichmentSection[];
+  keyTerms: { term: string; description: string }[];
   suggestedStatus: AnswerStatus;
   statusConfidence: "LOW" | "MEDIUM" | "HIGH";
   statusRationale: string;
@@ -53,6 +54,14 @@ export type EnrichmentProposal = {
   }[];
   warnings: string[];
 };
+
+export function isUsefulKeyTermDescription(value: string) {
+  const description = value.trim();
+  return description.length >= 80 &&
+    !/^(a recurring (concept|term)|a central concept|a key term|a concept (used|whose))/i.test(description) &&
+    !/meaning varies across (methods|settings|contexts|communities)/i.test(description) &&
+    !hasLikelyAnswerLeak(description);
+}
 
 function clean(value: unknown) {
   return String(value ?? "").trim();
@@ -148,6 +157,20 @@ export function parseEnrichmentProposal(value: unknown): EnrichmentProposal {
       blocks,
     };
   });
+  const keyTerms = (Array.isArray(candidate.keyTerms) ? candidate.keyTerms : [])
+    .slice(0, 8)
+    .map((raw, index) => {
+      const item = raw as Record<string, unknown>;
+      const term = clean(item.term);
+      const description = clean(item.description);
+      if (term.length < 2 || term.length > 80 || !isUsefulKeyTermDescription(description))
+        throw new Error(`AI key term ${index + 1} is generic, incomplete, or unsafe.`);
+      return { term, description };
+    });
+  if (new Set(keyTerms.map(item => item.term.toLowerCase())).size !== keyTerms.length)
+    throw new Error("AI returned duplicate key terms.");
+  if (new Set(keyTerms.map(item => item.description.toLowerCase())).size !== keyTerms.length)
+    throw new Error("AI returned repeated key-term descriptions.");
   const suggestedStatus = clean(candidate.suggestedStatus);
   if (!answerStatuses.includes(suggestedStatus as AnswerStatus))
     throw new Error("AI returned an invalid status suggestion.");
@@ -253,6 +276,7 @@ export function parseEnrichmentProposal(value: unknown): EnrichmentProposal {
     contextSummary,
     timeline,
     sections,
+    keyTerms,
     suggestedStatus: suggestedStatus as AnswerStatus,
     statusConfidence: ["LOW", "MEDIUM", "HIGH"].includes(confidence)
       ? (confidence as "LOW" | "MEDIUM" | "HIGH")

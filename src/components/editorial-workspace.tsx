@@ -32,6 +32,7 @@ type TimelineEditorEvent = {
   title: string;
   description: string;
 };
+type KeyTermEditorItem = { term: string; description: string };
 type AnswerAttemptEditorItem = EnrichmentProposal["answerAttempts"][number] & {
   approved: boolean;
 };
@@ -40,6 +41,7 @@ type EditorialDetail = EditorialQuestion & {
   categories: { id: string; name: string }[];
   sections: StoryEditorSection[];
   timeline: TimelineEditorEvent[];
+  keyTerms: KeyTermEditorItem[];
   answerAttempts: EnrichmentProposal["answerAttempts"];
   liveSections: StoryEditorSection[];
   hasPendingRevision: boolean;
@@ -331,6 +333,7 @@ export function EditorialWorkspace({
   const [editorTimeline, setEditorTimeline] = useState<TimelineEditorEvent[]>(
     [],
   );
+  const [editorKeyTerms, setEditorKeyTerms] = useState<KeyTermEditorItem[]>([]);
   const [editorAnswerAttempts, setEditorAnswerAttempts] = useState<
     AnswerAttemptEditorItem[]
   >([]);
@@ -378,6 +381,7 @@ export function EditorialWorkspace({
         proposal?: EnrichmentProposal;
         contextSummary?: string;
         timeline?: TimelineEditorEvent[];
+        keyTerms?: KeyTermEditorItem[];
         reviewCount?: number;
       };
       if (!response.ok)
@@ -549,6 +553,7 @@ export function EditorialWorkspace({
       setEditorCategoryId(detail.category_id);
       setEditorSections(detail.sections.length ? detail.sections : defaults);
       setEditorTimeline(detail.timeline ?? []);
+      setEditorKeyTerms(detail.keyTerms ?? []);
       setEditorAnswerAttempts(
         (detail.answerAttempts ?? []).map((attempt) => ({
           ...attempt,
@@ -698,6 +703,7 @@ export function EditorialWorkspace({
             instruction,
             contextSummary: editorContext,
             timeline: editorTimeline,
+            keyTerms: editorKeyTerms,
             answerAttempts: editorAnswerAttempts,
             verifiedStatus: editorVerifiedStatus,
             categoryId: editorCategoryId,
@@ -720,6 +726,7 @@ export function EditorialWorkspace({
       setApprovedRelationships(new Set());
       setEditorContext(result.proposal.contextSummary);
       setEditorTimeline(result.proposal.timeline);
+      setEditorKeyTerms(result.proposal.keyTerms);
       setEditorAnswerAttempts(
         result.proposal.answerAttempts.map((attempt) => ({
           ...attempt,
@@ -755,6 +762,7 @@ export function EditorialWorkspace({
               : "save_story",
           contextSummary: editorContext,
           timeline: editorTimeline,
+          keyTerms: editorKeyTerms,
           answerAttempts: editorAnswerAttempts.filter(
             (attempt) => attempt.approved,
           ),
@@ -796,6 +804,7 @@ export function EditorialWorkspace({
           action: "save_revision",
           contextSummary: editorContext,
           timeline: editorTimeline,
+          keyTerms: editorKeyTerms,
           answerAttempts: editorAnswerAttempts.filter(
             (attempt) => attempt.approved,
           ),
@@ -877,6 +886,7 @@ export function EditorialWorkspace({
           action: "save_story",
           contextSummary: editorContext,
           timeline: editorTimeline,
+          keyTerms: editorKeyTerms,
           answerAttempts: editorAnswerAttempts.filter(
             (attempt) => attempt.approved,
           ),
@@ -1104,6 +1114,18 @@ export function EditorialWorkspace({
                               <small>{event.displayDate}</small>
                               <h3>{event.title}</h3>
                               <p>{event.description}</p>
+                            </article>
+                          ))}
+                        </section>
+                      )}
+                      {editorKeyTerms.length > 0 && (
+                        <section>
+                          <span className="eyebrow">Vocabulary</span>
+                          <h2>Terms that shape the question</h2>
+                          {editorKeyTerms.map((item, index) => (
+                            <article key={`${item.term}-${index}`}>
+                              <h3>{item.term}</h3>
+                              <p>{item.description}</p>
                             </article>
                           ))}
                         </section>
@@ -1487,6 +1509,83 @@ export function EditorialWorkspace({
                         characters and no more than 60 words
                       </small>
                     </label>
+                  </fieldset>
+                  <fieldset>
+                    <legend>Terms that shape the question</legend>
+                    <p>
+                      Define only vocabulary that materially changes how this
+                      particular question is understood. Leave this empty when
+                      no useful terms are ready.
+                    </p>
+                    {editorKeyTerms.map((item, index) => (
+                      <div className="timeline-editor-event" key={index}>
+                        <label>
+                          Term
+                          <input
+                            required
+                            minLength={2}
+                            maxLength={80}
+                            value={item.term}
+                            onChange={(event) =>
+                              setEditorKeyTerms((current) =>
+                                current.map((term, position) =>
+                                  position === index
+                                    ? { ...term, term: event.target.value }
+                                    : term,
+                                ),
+                              )
+                            }
+                          />
+                        </label>
+                        <label>
+                          Concrete meaning in this question
+                          <textarea
+                            required
+                            minLength={80}
+                            rows={4}
+                            value={item.description}
+                            onChange={(event) =>
+                              setEditorKeyTerms((current) =>
+                                current.map((term, position) =>
+                                  position === index
+                                    ? {
+                                        ...term,
+                                        description: event.target.value,
+                                      }
+                                    : term,
+                                ),
+                              )
+                            }
+                          />
+                        </label>
+                        <button
+                          type="button"
+                          className="text-link"
+                          onClick={() =>
+                            setEditorKeyTerms((current) =>
+                              current.filter(
+                                (_, position) => position !== index,
+                              ),
+                            )
+                          }
+                        >
+                          Remove term
+                        </button>
+                      </div>
+                    ))}
+                    <button
+                      type="button"
+                      className="button ghost small"
+                      disabled={editorKeyTerms.length >= 8}
+                      onClick={() =>
+                        setEditorKeyTerms((current) => [
+                          ...current,
+                          { term: "", description: "" },
+                        ])
+                      }
+                    >
+                      Add key term
+                    </button>
                   </fieldset>
                   <fieldset>
                     <legend>How the asking changed</legend>

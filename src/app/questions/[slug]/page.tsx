@@ -9,6 +9,7 @@ import { getAuthDatabase, getCurrentUser } from "@/lib/auth";
 import { getCollections, type UserCollection } from "@/lib/library";
 import { QuestionViewTracker } from "@/components/question-view-tracker";
 import { QuestionMap } from "@/components/question-map";
+import { isUsefulKeyTermDescription } from "@/domain/enrichment";
 export const dynamic = "force-dynamic";
 export async function generateMetadata({
   params,
@@ -28,6 +29,9 @@ export default async function QuestionPage({
   const repository = await getQuestionRepository();
   const question = await repository.findBySlug((await params).slug);
   if (!question) notFound();
+  const usefulKeyTerms = question.keyTerms.filter((term) =>
+    isUsefulKeyTermDescription(term.description),
+  );
   const [related, graph, user] = await Promise.all([
     repository.related(question.slug),
     repository.graph(question.slug, 2),
@@ -287,22 +291,22 @@ export default async function QuestionPage({
           <Link href="/explore">Keep exploring →</Link>
         </aside>
       </div>
-      {(question.keyTerms.length > 0 || question.people.length > 0) && (
+      {(usefulKeyTerms.length > 0 || question.people.length > 0) && (
         <section className="encyclopedic-section">
           <div className="shell encyclopedia-grid">
-            <div>
+            {usefulKeyTerms.length > 0 && <div>
               <span className="eyebrow">Vocabulary</span>
               <h2>Terms that shape the question</h2>
               <div className="term-list">
-                {question.keyTerms.map((term) => (
+                {usefulKeyTerms.map((term) => (
                   <article key={term.term}>
                     <h3>{term.term}</h3>
                     <p>{term.description}</p>
                   </article>
                 ))}
               </div>
-            </div>
-            <div>
+            </div>}
+            {question.people.length > 0 && <div>
               <span className="eyebrow">People in its history</span>
               <h2>Associated with the inquiry</h2>
               <div className="people-list">
@@ -316,7 +320,7 @@ export default async function QuestionPage({
                   </article>
                 ))}
               </div>
-            </div>
+            </div>}
           </div>
         </section>
       )}
