@@ -16,6 +16,7 @@
     "db:migrate:remote": "wrangler d1 migrations apply tambaya --remote",
     "seed:generate": "tsx scripts/generate-seed.ts",
     "seed:generate:expansion": "tsx scripts/generate-expansion-seed.ts",
+    "seed:generate:additional": "tsx scripts/generate-additional-seed.ts",
     "db:seed:local": "npm run seed:generate && wrangler d1 execute tambaya --local --file=./scripts/generated-seed.sql"
   },
   "dependencies": {
