@@ -1,9 +1,18 @@
 "use client";
 
 import { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
-import { countWords, type StoryBlock } from "@/domain/question";
+import {
+  countWords,
+  type AnswerStatus,
+  type StoryBlock,
+} from "@/domain/question";
 import type { EnrichmentProposal } from "@/domain/enrichment";
 import { evaluateEditorialQuality } from "@/domain/editorial-quality";
+import {
+  buildQuestionAgentBrief,
+  MAX_QUESTION_SPEC_BYTES,
+  parseQuestionSpecification,
+} from "@/domain/question-exchange";
 import { StoryBlocks } from "@/components/story-blocks";
 
 type EditorialQuestion = {
@@ -371,6 +380,7 @@ export function EditorialWorkspace({
   >([]);
   const [manualTargetId, setManualTargetId] = useState("");
   const [aiInstruction, setAiInstruction] = useState("");
+  const [agentSpecification, setAgentSpecification] = useState("");
   const [editorVerifiedStatus, setEditorVerifiedStatus] = useState("OPEN");
   const [scope, setScope] = useState<"review" | "archive">("review");
   const [workspaceMode, setWorkspaceMode] = useState<"review" | "create">(
@@ -645,6 +655,7 @@ export function EditorialWorkspace({
         ),
       );
       setProposal(null);
+      setAgentSpecification("");
       setMessage("Story editor opened.");
     } catch (error) {
       setMessage(
@@ -748,6 +759,110 @@ export function EditorialWorkspace({
           : section,
       ),
     );
+  }
+
+  function currentAgentBrief() {
+    if (!editing) throw new Error("Open a question before exporting it.");
+    return buildQuestionAgentBrief({
+      questionId: editing.id,
+      questionTitle: editing.question_text,
+      categories: editing.categories,
+      relationshipCandidates: editing.candidates,
+      currentSpecification: {
+        contextSummary: editorContext,
+        categoryId: editorCategoryId,
+        verifiedStatus: editorVerifiedStatus as AnswerStatus,
+        sections: editorSections,
+        timeline: editorTimeline,
+        keyTerms: editorKeyTerms,
+        answerAttempts: editorAnswerAttempts.map((attempt) => ({
+          title: attempt.title,
+          author: attempt.author,
+          publisher: attempt.publisher,
+          url: attempt.url,
+          publicationDate: attempt.publicationDate,
+          approach: attempt.approach,
+          scope: attempt.scope,
+          significance: attempt.significance,
+          unresolved: attempt.unresolved,
+        })),
+        relationships: relationshipSuggestions,
+      },
+    });
+  }
+
+  async function copyAgentBrief() {
+    try {
+      await navigator.clipboard.writeText(
+        JSON.stringify(currentAgentBrief(), null, 2),
+      );
+      setMessage(
+        "External-agent brief copied. Paste it into the agent and ask it to return the responseContract JSON only.",
+      );
+    } catch {
+      setMessage("The browser could not copy the external-agent brief.");
+    }
+  }
+
+  function downloadAgentBrief() {
+    if (!editing) return;
+    const blob = new Blob([JSON.stringify(currentAgentBrief(), null, 2)], {
+      type: "application/json",
+    });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = `tambaya-${editing.id}-agent-brief.json`;
+    link.click();
+    URL.revokeObjectURL(url);
+    setMessage("External-agent brief downloaded as JSON.");
+  }
+
+  function importAgentSpecification(raw = agentSpecification) {
+    if (!editing) return;
+    try {
+      const imported = parseQuestionSpecification(raw, {
+        questionId: editing.id,
+        categoryIds: new Set(editing.categories.map((category) => category.id)),
+        relationshipTargets: new Map(
+          editing.candidates.map((candidate) => [
+            candidate.id,
+            { slug: candidate.slug, questionText: candidate.questionText },
+          ]),
+        ),
+      });
+      if (
+        !window.confirm(
+          "Load this external specification into the unsaved working copy? Current unsaved fields will be replaced.",
+        )
+      )
+        return;
+      setEditorContext(imported.contextSummary);
+      setEditorCategoryId(imported.categoryId);
+      setEditorVerifiedStatus(imported.verifiedStatus);
+      setEditorSections(imported.sections);
+      setEditorTimeline(imported.timeline);
+      setEditorKeyTerms(imported.keyTerms);
+      setEditorAnswerAttempts(
+        imported.answerAttempts.map((attempt) => ({
+          ...attempt,
+          approved: false,
+        })),
+      );
+      setRelationshipSuggestions(imported.relationships);
+      setApprovedRelationships(new Set());
+      setProposal(null);
+      setAgentSpecification("");
+      setMessage(
+        "External specification loaded into the unsaved working copy. Sources and connections remain unapproved; review them before saving.",
+      );
+    } catch (error) {
+      setMessage(
+        error instanceof Error
+          ? `Import rejected: ${error.message}`
+          : "The external specification could not be imported.",
+      );
+    }
   }
 
   async function enrichStory(instruction = "") {
@@ -1324,6 +1439,79 @@ export function EditorialWorkspace({
                       <p className="notice">{message}</p>
                     ) : null}
                   </section>
+                  <details className="agent-exchange">
+                    <summary>Use an external AI agent</summary>
+                    <div>
+                      <span className="eyebrow">Portable specification</span>
+                      <h4>Export the brief, then import the agent response</h4>
+                      <p>
+                        The brief contains this working copy, Tambaya’s
+                        editorial rules, valid categories and relationship
+                        targets, plus the exact JSON response contract. An
+                        import changes only this unsaved editor.
+                      </p>
+                      <div className="agent-exchange-actions">
+                        <button
+                          type="button"
+                          className="button ghost small"
+                          onClick={() => void copyAgentBrief()}
+                        >
+                          Copy agent brief
+                        </button>
+                        <button
+                          type="button"
+                          className="button ghost small"
+                          onClick={downloadAgentBrief}
+                        >
+                          Download JSON brief
+                        </button>
+                        <label className="button ghost small file-button">
+                          Import JSON file
+                          <input
+                            type="file"
+                            accept="application/json,.json"
+                            onChange={(event) => {
+                              const file = event.target.files?.[0];
+                              event.target.value = "";
+                              if (!file) return;
+                              if (file.size > MAX_QUESTION_SPEC_BYTES) {
+                                setMessage("Import rejected: the file is larger than 1 MB.");
+                                return;
+                              }
+                              void file
+                                .text()
+                                .then(importAgentSpecification)
+                                .catch(() =>
+                                  setMessage(
+                                    "Import rejected: the selected file could not be read.",
+                                  ),
+                                );
+                            }}
+                          />
+                        </label>
+                      </div>
+                      <label>
+                        Paste the agent’s JSON response
+                        <textarea
+                          rows={8}
+                          maxLength={MAX_QUESTION_SPEC_BYTES}
+                          value={agentSpecification}
+                          onChange={(event) =>
+                            setAgentSpecification(event.target.value)
+                          }
+                          placeholder='{"protocol":"tambaya.question-specification","version":1,"questionId":"…","specification":{…}}'
+                        />
+                      </label>
+                      <button
+                        type="button"
+                        className="button small"
+                        disabled={!agentSpecification.trim()}
+                        onClick={() => importAgentSpecification()}
+                      >
+                        Validate and load specification
+                      </button>
+                    </div>
+                  </details>
                   <section className="ai-change-request">
                     <label>
                       Ask AI to change the current working copy

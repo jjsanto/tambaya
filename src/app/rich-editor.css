@@ -19,6 +19,17 @@
 .enrichment-panel h4 { margin: 3px 0 5px; color: var(--navy); font-family: var(--font-serif); font-size: 20px; }
 .enrichment-panel p { margin: 0; max-width: 610px; color: var(--muted); font-size: 13px; }
 .enrichment-panel button { flex: 0 0 auto; }
+.agent-exchange { border: 1px solid var(--line); background: #fff; }
+.agent-exchange > summary { padding: 14px 18px; cursor: pointer; color: var(--navy); font-weight: 800; }
+.agent-exchange > div { display: grid; gap: 12px; padding: 0 18px 18px; }
+.agent-exchange h4, .agent-exchange p { margin: 0; }
+.agent-exchange h4 { color: var(--navy); font: 500 20px var(--font-serif); }
+.agent-exchange p { max-width: 760px; color: var(--muted); font-size: 13px; line-height: 1.55; }
+.agent-exchange label:not(.file-button) { display: grid; gap: 6px; font-size: 12px; font-weight: 800; }
+.agent-exchange textarea { width: 100%; padding: 11px; border: 1px solid var(--line); background: var(--cream); font: 12px/1.5 monospace; }
+.agent-exchange-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.file-button { position: relative; overflow: hidden; cursor: pointer; }
+.file-button input { position: absolute; width: 1px; height: 1px; opacity: 0; }
 .publication-checklist { display: grid; gap: 8px; padding: 18px; border: 1px solid currentColor; }
 .publication-checklist h4, .publication-checklist p { margin: 0; }
 .publication-checklist h4 { color: var(--navy); font: 500 20px var(--font-serif); }
