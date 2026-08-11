@@ -1149,6 +1149,10 @@ export function EditorialWorkspace({
                     >
                       {busy ? "Working…" : "Enrich question"}
                     </button>
+                    {message.includes("rejected") ||
+                    message.includes("Unable to enrich") ? (
+                      <p className="notice">{message}</p>
+                    ) : null}
                   </section>
                   <section className="ai-change-request">
                     <label>

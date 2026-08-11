@@ -35,7 +35,7 @@ const schema = {
     timeline: {
       type: "array",
       minItems: 3,
-      maxItems: 8,
+      maxItems: 6,
       items: {
         type: "object",
         properties: {
@@ -49,7 +49,7 @@ const schema = {
     sections: {
       type: "array",
       minItems: 5,
-      maxItems: 8,
+      maxItems: 6,
       items: {
         type: "object",
         properties: {
@@ -78,6 +78,7 @@ const schema = {
     statusRationale: { type: "string" },
     sourceLeads: {
       type: "array",
+      maxItems: 5,
       items: {
         type: "object",
         properties: {
@@ -91,7 +92,7 @@ const schema = {
     },
     answerAttempts: {
       type: "array",
-      maxItems: 10,
+      maxItems: 4,
       items: {
         type: "object",
         properties: {
@@ -209,7 +210,7 @@ export async function POST(
       .bind(id)
       .all<ReferenceRow>(),
     env.DB.prepare(
-      "SELECT id,slug,question_text,category_name,substr(context_summary,1,500) context_summary FROM questions WHERE id<>? AND publication_state='PUBLISHED' ORDER BY CASE WHEN category_name=(SELECT category_name FROM questions WHERE id=?) THEN 0 ELSE 1 END,published_at DESC LIMIT 60",
+      "SELECT id,slug,question_text,category_name,substr(context_summary,1,300) context_summary FROM questions WHERE id<>? AND publication_state='PUBLISHED' ORDER BY CASE WHEN category_name=(SELECT category_name FROM questions WHERE id=?) THEN 0 ELSE 1 END,published_at DESC LIMIT 30",
     )
       .bind(id, id)
       .all<CandidateRow>(),
@@ -289,11 +290,11 @@ Current unsaved working copy: ${JSON.stringify({ contextSummary: body.contextSum
 Editorial change request: ${instruction || "Create a comprehensive general enrichment."}
 Existing question candidates: ${JSON.stringify(candidatesResult.results ?? [])}
 
-Write a concise 45–60 word context summary, a chronological 3–8 event timeline showing how the asking changed, and 5–8 encyclopedic Story sections about the question's origins, changing vocabulary, history of inquiry, significance, appearances across fields, methodological difficulties, and lines of further inquiry. Timeline displayDate values may be a year, period, or era; each event must identify a genuine change in framing, vocabulary, audience, or method rather than an alleged answer. Each section paragraph must exceed 120 words. Explain the QUESTION and its history; do not state, imply, or summarize an answer. Never use phrases such as “the answer is”, “this proves”, or “therefore the answer”. The summary, timeline, lists, and callouts must also remain contextual.
+Write a concise 45–60 word context summary, a chronological 3–6 event timeline showing how the asking changed, and 5–6 encyclopedic Story sections about the question's origins, changing vocabulary, history of inquiry, significance, appearances across fields, methodological difficulties, and lines of further inquiry. Timeline displayDate values may be a year, period, or era; each event must identify a genuine change in framing, vocabulary, audience, or method rather than an alleged answer. Each section paragraph must contain 90–140 words. Explain the QUESTION and its history; do not state, imply, or summarize an answer. Never use phrases such as “the answer is”, “this proves”, or “therefore the answer”. The summary, timeline, lists, and callouts must also remain contextual.
 
 Suggest an answer-status classification only as metadata about whether sufficiently established answers exist outside Tambaya. The rationale must describe verification scope and uncertainty without disclosing any answer. Treat statusConfidence as LOW unless the supplied source records support a stronger assessment. Source leads must be credible HTTPS references for an editor to verify; never fabricate article titles or URLs.
 
-For OPEN and PARTIALLY_ANSWERED questions, propose 3–6 historically significant, identifiable works that explicitly attempted to answer or materially investigate this question. Do not omit this part merely because a URL is uncertain. For each answerAttempt, identify the bibliographic source, its approach, the aspect or scope it addressed, its historical significance, and what remained unresolved or outside its scope. Describe the attempt without revealing, endorsing, or summarizing its proposed answer. Supply an HTTPS URL only when you know a credible canonical or publisher page; otherwise return an empty string for url so an editor can locate and verify it. Never invent a title, author, publisher, or URL. If fewer than three genuine works are known, return the defensible works rather than padding the list. For ANSWERED questions, return an empty answerAttempts array.
+For OPEN and PARTIALLY_ANSWERED questions, propose 1–4 historically significant, identifiable works that explicitly attempted to answer or materially investigate this question. Do not omit this part merely because a URL is uncertain. For each answerAttempt, identify the bibliographic source, its approach, the aspect or scope it addressed, its historical significance, and what remained unresolved or outside its scope. Describe the attempt without revealing, endorsing, or summarizing its proposed answer. Supply an HTTPS URL only when you know a credible canonical or publisher page; otherwise return an empty string for url so an editor can locate and verify it. Never invent a title, author, publisher, or URL. For ANSWERED questions, return an empty answerAttempts array.
 
 Also propose up to 8 meaningful outbound relationships in the form “this question RELATIONSHIP_TYPE candidate question”. Use only IDs, slugs, and exact question titles from Existing question candidates. Do not force weak connections. Give each a 0–1 confidence and a concise rationale. Return an empty relationships array if none are defensible. Return only the requested JSON.`;
   try {
@@ -309,43 +310,11 @@ Also propose up to 8 meaningful outbound relationships in the form “this quest
           { role: "user", content: prompt },
         ],
         response_format: { type: "json_schema", json_schema: schema },
-        max_tokens: 6500,
+        max_tokens: 4800,
       },
     );
     const rawProposal = unwrap(result) as Record<string, unknown>;
-    let proposal = parseEnrichmentProposal(rawProposal);
-    if (proposal.answerAttempts.length === 0) {
-      const attemptsResult = await env.AI.run(
-        "@cf/meta/llama-3.3-70b-instruct-fp8-fast",
-        {
-          messages: [
-            {
-              role: "system",
-              content:
-                "You are a bibliographic research assistant. Identify genuine published works, but never invent citations or summarize their answers.",
-            },
-            {
-              role: "user",
-              content: `Question: ${question.question_text}\nStatus: ${workingStatus}\nIdentify one genuine, historically significant published work that attempted to answer or materially investigate this question. Describe only the work's approach, scope, significance, and what remained outside its scope. Do not disclose its conclusion. An empty URL is required whenever you are not certain of a credible canonical HTTPS page. You must return one bibliographic candidate for editorial verification. Return JSON only.`,
-            },
-          ],
-          response_format: {
-            type: "json_schema",
-            json_schema: {
-              type: "object",
-              properties: {
-                answerAttempt: schema.properties.answerAttempts.items,
-              },
-              required: ["answerAttempt"],
-            },
-          },
-          max_tokens: 3000,
-        },
-      );
-      const fallback = unwrap(attemptsResult) as Record<string, unknown>;
-      rawProposal.answerAttempts = [fallback.answerAttempt];
-      proposal = parseEnrichmentProposal(rawProposal);
-    }
+    const proposal = parseEnrichmentProposal(rawProposal);
     if (proposal.answerAttempts.length === 0) {
       const existingReference = (references.results ?? [])[0];
       const sourceLead = proposal.sourceLeads[0];
@@ -393,10 +362,30 @@ Also propose up to 8 meaningful outbound relationships in the form “this quest
         ? [relationship]
         : [];
     });
+    console.log(
+      JSON.stringify({
+        event: "editorial_enrichment_result",
+        questionId: id,
+        workingStatus,
+        rawAnswerAttemptCount: Array.isArray(rawProposal.answerAttempts)
+          ? rawProposal.answerAttempts.length
+          : -1,
+        finalAnswerAttemptCount: proposal.answerAttempts.length,
+        existingReferenceCount: (references.results ?? []).length,
+      }),
+    );
     return Response.json({ proposal }, { headers: editorialHeaders });
   } catch (error) {
     const detail =
       error instanceof Error ? error.message : "Unknown model response";
+    console.error(
+      JSON.stringify({
+        event: "editorial_enrichment_rejected",
+        questionId: id,
+        workingStatus,
+        detail,
+      }),
+    );
     return Response.json(
       { error: `The enrichment proposal was rejected safely: ${detail}` },
       { status: 422, headers: editorialHeaders },
