@@ -28,6 +28,32 @@ type CandidateRow = {
   context_summary: string;
 };
 
+const answerAttemptSchema = {
+  type: "object",
+  properties: {
+    title: { type: "string" },
+    author: { type: "string" },
+    publisher: { type: "string" },
+    url: { type: "string" },
+    publicationDate: { type: "string" },
+    approach: { type: "string" },
+    scope: { type: "string" },
+    significance: { type: "string" },
+    unresolved: { type: "string" },
+  },
+  required: [
+    "title",
+    "author",
+    "publisher",
+    "url",
+    "publicationDate",
+    "approach",
+    "scope",
+    "significance",
+    "unresolved",
+  ],
+};
+
 const schema = {
   type: "object",
   properties: {
@@ -90,35 +116,6 @@ const schema = {
         required: ["title", "publisher", "url", "purpose"],
       },
     },
-    answerAttempts: {
-      type: "array",
-      maxItems: 4,
-      items: {
-        type: "object",
-        properties: {
-          title: { type: "string", minLength: 4 },
-          author: { type: "string" },
-          publisher: { type: "string" },
-          url: { type: "string" },
-          publicationDate: { type: "string" },
-          approach: { type: "string", minLength: 30 },
-          scope: { type: "string", minLength: 30 },
-          significance: { type: "string", minLength: 30 },
-          unresolved: { type: "string", minLength: 30 },
-        },
-        required: [
-          "title",
-          "author",
-          "publisher",
-          "url",
-          "publicationDate",
-          "approach",
-          "scope",
-          "significance",
-          "unresolved",
-        ],
-      },
-    },
     relationships: {
       type: "array",
       maxItems: 8,
@@ -162,7 +159,6 @@ const schema = {
     "statusConfidence",
     "statusRationale",
     "sourceLeads",
-    "answerAttempts",
     "relationships",
   ],
 };
@@ -294,13 +290,10 @@ Write a concise 45–60 word context summary, a chronological 3–6 event timeli
 
 Suggest an answer-status classification only as metadata about whether sufficiently established answers exist outside Tambaya. The rationale must describe verification scope and uncertainty without disclosing any answer. Treat statusConfidence as LOW unless the supplied source records support a stronger assessment. Source leads must be credible HTTPS references for an editor to verify; never fabricate article titles or URLs.
 
-For OPEN and PARTIALLY_ANSWERED questions, propose 1–4 historically significant, identifiable works that explicitly attempted to answer or materially investigate this question. Do not omit this part merely because a URL is uncertain. For each answerAttempt, identify the bibliographic source, its approach, the aspect or scope it addressed, its historical significance, and what remained unresolved or outside its scope. Describe the attempt without revealing, endorsing, or summarizing its proposed answer. Supply an HTTPS URL only when you know a credible canonical or publisher page; otherwise return an empty string for url so an editor can locate and verify it. Never invent a title, author, publisher, or URL. For ANSWERED questions, return an empty answerAttempts array.
-
 Also propose up to 8 meaningful outbound relationships in the form “this question RELATIONSHIP_TYPE candidate question”. Use only IDs, slugs, and exact question titles from Existing question candidates. Do not force weak connections. Give each a 0–1 confidence and a concise rationale. Return an empty relationships array if none are defensible. Return only the requested JSON.`;
   try {
-    const result = await env.AI.run(
-      "@cf/meta/llama-3.3-70b-instruct-fp8-fast",
-      {
+    const [storyResult, attemptResult] = await Promise.allSettled([
+      env.AI.run("@cf/meta/llama-3.3-70b-instruct-fp8-fast", {
         messages: [
           {
             role: "system",
@@ -311,9 +304,37 @@ Also propose up to 8 meaningful outbound relationships in the form “this quest
         ],
         response_format: { type: "json_schema", json_schema: schema },
         max_tokens: 4800,
-      },
-    );
-    const rawProposal = unwrap(result) as Record<string, unknown>;
+      }),
+      env.AI.run("@cf/meta/llama-3.3-70b-instruct-fp8-fast", {
+        messages: [
+          {
+            role: "system",
+            content:
+              "You are a bibliographic research assistant. Identify genuine works without inventing citations or disclosing their conclusions.",
+          },
+          {
+            role: "user",
+            content: `Question: ${question.question_text}\nStatus: ${workingStatus}\nIdentify one genuine historically significant published work that attempted to answer or materially investigate this question. Describe only its approach, scope, significance, and what remained unresolved. Do not reveal its conclusion. Use an empty URL if a canonical HTTPS page is uncertain. Return one candidate as JSON.`,
+          },
+        ],
+        response_format: {
+          type: "json_schema",
+          json_schema: {
+            type: "object",
+            properties: { answerAttempt: answerAttemptSchema },
+            required: ["answerAttempt"],
+          },
+        },
+        max_tokens: 1400,
+      }),
+    ]);
+    if (storyResult.status === "rejected") throw storyResult.reason;
+    const rawProposal = unwrap(storyResult.value) as Record<string, unknown>;
+    rawProposal.answerAttempts = [];
+    if (workingStatus !== "ANSWERED" && attemptResult.status === "fulfilled") {
+      const attempt = unwrap(attemptResult.value) as Record<string, unknown>;
+      rawProposal.answerAttempts = [attempt.answerAttempt];
+    }
     const proposal = parseEnrichmentProposal(rawProposal);
     if (proposal.answerAttempts.length === 0) {
       const existingReference = (references.results ?? [])[0];
