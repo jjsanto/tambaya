@@ -1,6 +1,6 @@
 "use client";
 
-import { FormEvent, useCallback, useEffect, useState } from "react";
+import { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
 import { countWords, type StoryBlock } from "@/domain/question";
 import type { EnrichmentProposal } from "@/domain/enrichment";
 import { StoryBlocks } from "@/components/story-blocks";
@@ -17,6 +17,10 @@ type EditorialQuestion = {
   context_summary: string;
   updated_at: string;
   section_count: number;
+  timeline_count: number;
+  term_count: number;
+  source_count: number;
+  relationship_count: number;
   submission_state: string | null;
   review_notes: string | null;
 };
@@ -72,6 +76,23 @@ const relationshipLabels: Record<string, string> = {
   CHALLENGES: "challenges",
   PRECEDES: "precedes",
 };
+
+function batchLabel(question: EditorialQuestion) {
+  if (question.id.startsWith("pilot-2026-")) return "Pilot 25";
+  if (question.id.startsWith("reviewed-batch-1-")) return "Reviewed batch 1";
+  return question.submission_state ? "User submissions" : "Existing catalogue";
+}
+
+function qualityChecks(question: EditorialQuestion) {
+  return [
+    { key: "summary", label: "Summary", pass: question.context_summary.length >= 150 && countWords(question.context_summary) <= 60 },
+    { key: "story", label: "Story", pass: question.section_count >= 5 },
+    { key: "timeline", label: "Timeline", pass: question.timeline_count >= 3 },
+    { key: "terms", label: "Terms", pass: question.term_count >= 2 },
+    { key: "sources", label: "Sources", pass: question.source_count >= 1 },
+    { key: "connections", label: "Connections", pass: question.relationship_count >= 1 },
+  ];
+}
 
 function RichBlockFields({
   block,
@@ -354,6 +375,19 @@ export function EditorialWorkspace({
     "review",
   );
   const [reviewCount, setReviewCount] = useState(0);
+  const [queueCategory, setQueueCategory] = useState("");
+  const [queueStatus, setQueueStatus] = useState("");
+  const [queueBatch, setQueueBatch] = useState("");
+  const [queueReadiness, setQueueReadiness] = useState("");
+
+  const filteredQuestions = useMemo(() => questions.filter((question) => {
+    const checks = qualityChecks(question);
+    const editoriallyReady = checks.slice(0, 5).every((check) => check.pass);
+    return (!queueCategory || question.category_name === queueCategory) &&
+      (!queueStatus || (question.verified_status ?? question.claimed_status) === queueStatus) &&
+      (!queueBatch || batchLabel(question) === queueBatch) &&
+      (!queueReadiness || (queueReadiness === "ready" ? editoriallyReady : !editoriallyReady));
+  }), [questions, queueBatch, queueCategory, queueReadiness, queueStatus]);
 
   useEffect(() => {
     const timer = window.setTimeout(
@@ -868,16 +902,19 @@ export function EditorialWorkspace({
     }
   }
 
-  async function saveAndPublish() {
+  async function saveAndPublish(openNext = false) {
     if (
       !editing ||
       editing.publication_state !== "DRAFT" ||
       !window.confirm(
-        `Save the working copy and publish “${editing.question_text}” with status ${labels[editorVerifiedStatus]}?`,
+        `Save the working copy and publish “${editing.question_text}” with status ${labels[editorVerifiedStatus]}${openNext ? ", then open the next filtered question" : ""}?`,
       )
     )
       return;
     setBusy(true);
+    const nextQuestion = openNext
+      ? filteredQuestions.find((question) => question.id !== editing.id)
+      : undefined;
     try {
       await api(`/api/editorial/questions/${editing.id}`, {
         method: "PATCH",
@@ -912,6 +949,7 @@ export function EditorialWorkspace({
       );
       setEditing(null);
       await load();
+      if (nextQuestion) await openEditor(nextQuestion);
     } catch (error) {
       setMessage(
         error instanceof Error
@@ -1047,6 +1085,40 @@ export function EditorialWorkspace({
                   ? "Awaiting editorial review"
                   : "Question archive"}
               </h2>
+              <div className="discovery-controls editorial-queue-filters">
+                <label>
+                  Batch
+                  <select value={queueBatch} onChange={(event) => setQueueBatch(event.target.value)}>
+                    <option value="">All batches</option>
+                    {[...new Set(questions.map(batchLabel))].sort().map((batch) => <option key={batch}>{batch}</option>)}
+                  </select>
+                </label>
+                <label>
+                  Category
+                  <select value={queueCategory} onChange={(event) => setQueueCategory(event.target.value)}>
+                    <option value="">All categories</option>
+                    {[...new Set(questions.map((question) => question.category_name))].sort().map((category) => <option key={category}>{category}</option>)}
+                  </select>
+                </label>
+                <label>
+                  Status
+                  <select value={queueStatus} onChange={(event) => setQueueStatus(event.target.value)}>
+                    <option value="">All statuses</option>
+                    <option value="OPEN">Open</option>
+                    <option value="PARTIALLY_ANSWERED">Partially answered</option>
+                    <option value="ANSWERED">Answered</option>
+                  </select>
+                </label>
+                <label>
+                  Completeness
+                  <select value={queueReadiness} onChange={(event) => setQueueReadiness(event.target.value)}>
+                    <option value="">All levels</option>
+                    <option value="ready">Editorially ready</option>
+                    <option value="needs-work">Needs work</option>
+                  </select>
+                </label>
+                <span>{filteredQuestions.length} of {questions.length} shown</span>
+              </div>
               {editing && (
                 <form className="story-editor" onSubmit={saveStory}>
                   <div className="story-editor-head">
@@ -1937,14 +2009,24 @@ export function EditorialWorkspace({
                           : "Save revision"}
                       </button>
                       {editing.publication_state === "DRAFT" && (
-                        <button
-                          className="button small publish-revision"
-                          type="button"
-                          disabled={busy}
-                          onClick={() => void saveAndPublish()}
-                        >
-                          Save &amp; publish
-                        </button>
+                        <>
+                          <button
+                            className="button small publish-revision"
+                            type="button"
+                            disabled={busy}
+                            onClick={() => void saveAndPublish()}
+                          >
+                            Save &amp; publish
+                          </button>
+                          <button
+                            className="button small"
+                            type="button"
+                            disabled={busy || filteredQuestions.length < 2}
+                            onClick={() => void saveAndPublish(true)}
+                          >
+                            Approve &amp; open next
+                          </button>
+                        </>
                       )}
                       {editing.publication_state === "PUBLISHED" &&
                         editing.hasPendingRevision && (
@@ -1967,7 +2049,7 @@ export function EditorialWorkspace({
                   )}
                 </form>
               )}
-              {questions.map((question) => (
+              {filteredQuestions.map((question) => (
                 <article
                   key={question.id}
                   className={`editorial-record ${question.publication_state.toLowerCase()}`}
@@ -1983,6 +2065,13 @@ export function EditorialWorkspace({
                   </div>
                   <h3>{question.question_text}</h3>
                   <p>{question.context_summary}</p>
+                  <div className="quality-indicators" aria-label="Editorial completeness">
+                    {qualityChecks(question).map((check) => (
+                      <span key={check.key} className={check.pass ? "quality-pass" : "quality-missing"}>
+                        {check.pass ? "✓" : "○"} {check.label}
+                      </span>
+                    ))}
+                  </div>
                   {question.publication_state === "DRAFT" ? (
                     <div className="editorial-actions">
                       {question.submission_state && (

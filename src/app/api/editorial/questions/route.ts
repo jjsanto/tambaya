@@ -24,6 +24,10 @@ type EditorialRow = {
   context_summary: string;
   updated_at: string;
   section_count: number;
+  timeline_count: number;
+  term_count: number;
+  source_count: number;
+  relationship_count: number;
   submission_state: string | null;
   review_notes: string | null;
 };
@@ -47,7 +51,13 @@ export async function GET(request: Request) {
       : "q.publication_state='PUBLISHED' OR q.submission_state IS NULL";
   const [result, reviewCount] = await Promise.all([
     env.DB.prepare(
-      `SELECT q.id,q.slug,q.question_text,q.publication_state,q.claimed_status,q.verified_status,q.verification_state,COALESCE(c.name,q.category_name,'Uncategorised') category_name,q.context_summary,q.updated_at,(SELECT COUNT(*) FROM question_story_sections s WHERE s.question_id=q.id) section_count,q.submission_state,q.review_notes FROM questions q LEFT JOIN categories c ON c.id=q.category_id WHERE ${where} ORDER BY q.updated_at DESC`,
+      `SELECT q.id,q.slug,q.question_text,q.publication_state,q.claimed_status,q.verified_status,q.verification_state,COALESCE(c.name,q.category_name,'Uncategorised') category_name,q.context_summary,q.updated_at,
+      (SELECT COUNT(*) FROM question_story_sections s WHERE s.question_id=q.id) section_count,
+      (SELECT COUNT(*) FROM timeline_events t WHERE t.question_id=q.id) timeline_count,
+      (SELECT COUNT(*) FROM question_key_terms k WHERE k.question_id=q.id) term_count,
+      ((SELECT COUNT(*) FROM question_references r WHERE r.question_id=q.id) + (SELECT COUNT(*) FROM question_answer_attempts a WHERE a.question_id=q.id AND a.verified=1)) source_count,
+      (SELECT COUNT(*) FROM question_relationships rel WHERE (rel.source_question_id=q.id OR rel.target_question_id=q.id) AND rel.verified=1) relationship_count,
+      q.submission_state,q.review_notes FROM questions q LEFT JOIN categories c ON c.id=q.category_id WHERE ${where} ORDER BY q.updated_at DESC`,
     ).all<EditorialRow>(),
     env.DB.prepare(
       "SELECT COUNT(*) count FROM questions WHERE submission_state='SUBMITTED' AND editorial_outcome IS NULL",
