@@ -17,7 +17,6 @@
     "seed:generate": "tsx scripts/generate-seed.ts",
     "seed:generate:expansion": "tsx scripts/generate-expansion-seed.ts",
     "seed:generate:additional": "tsx scripts/generate-additional-seed.ts",
-    "seed:generate:bulk": "tsx scripts/generate-bulk-seed.ts",
     "db:seed:local": "npm run seed:generate && wrangler d1 execute tambaya --local --file=./scripts/generated-seed.sql"
   },
   "dependencies": {
