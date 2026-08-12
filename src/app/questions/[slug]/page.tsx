@@ -293,7 +293,9 @@ export default async function QuestionPage({
       </div>
       {(usefulKeyTerms.length > 0 || question.people.length > 0) && (
         <section className="encyclopedic-section">
-          <div className="shell encyclopedia-grid">
+          <div
+            className={`shell encyclopedia-grid${usefulKeyTerms.length > 0 && question.people.length === 0 ? " terms-only" : ""}${usefulKeyTerms.length === 0 && question.people.length > 0 ? " people-only" : ""}`}
+          >
             {usefulKeyTerms.length > 0 && <div>
               <span className="eyebrow">Vocabulary</span>
               <h2>Terms that shape the question</h2>
