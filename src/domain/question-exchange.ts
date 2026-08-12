@@ -257,9 +257,15 @@ export function parseQuestionSpecification(
   ).map((rawTerm, index) => {
     const term = record(rawTerm, `Key term ${index + 1}`);
     const name = text(firstDefined(term, ["term", "name", "title"]));
-    const description = text(
-      firstDefined(term, ["description", "definition", "meaning"]),
-    );
+    const directDescription = firstDefined(term, [
+      "description",
+      "definition",
+      "meaning",
+    ]);
+    const paragraphDescription = Array.isArray(term.paragraphs)
+      ? term.paragraphs.map(text).filter(Boolean).join("\n\n")
+      : "";
+    const description = text(directDescription ?? paragraphDescription);
     if (!name || !description)
       throw new Error(
         `Key term ${index + 1} needs both a term and a description.`,

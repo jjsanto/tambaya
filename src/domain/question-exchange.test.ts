@@ -102,4 +102,31 @@ describe("question specification exchange", () => {
       ),
     ).toThrow("both a term and a description");
   });
+
+  it("imports key terms represented as Story-shaped title and paragraphs", () => {
+    const external = {
+      ...specification,
+      keyTerms: [
+        {
+          key: "alternative-biochemistry",
+          kicker: "Definition",
+          title: "Alternative biochemistry",
+          paragraphs: [
+            "Chemical systems that differ from Earth's carbon-based biology in their molecular components, reaction pathways, or structural organization while potentially supporting life-like processes through unfamiliar mechanisms.",
+          ],
+        },
+      ],
+    };
+    const result = parseQuestionSpecification(
+      JSON.stringify({ questionId: "q-1", specification: external }),
+      constraints,
+    );
+    expect(result.keyTerms).toEqual([
+      {
+        term: "Alternative biochemistry",
+        description:
+          "Chemical systems that differ from Earth's carbon-based biology in their molecular components, reaction pathways, or structural organization while potentially supporting life-like processes through unfamiliar mechanisms.",
+      },
+    ]);
+  });
 });
