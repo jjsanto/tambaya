@@ -10,6 +10,7 @@ import type { EnrichmentProposal } from "@/domain/enrichment";
 import { evaluateEditorialQuality } from "@/domain/editorial-quality";
 import {
   buildQuestionAgentBrief,
+  type ImportableQuestionSpecification,
   MAX_QUESTION_SPEC_BYTES,
   parseQuestionSpecification,
 } from "@/domain/question-exchange";
@@ -386,6 +387,13 @@ export function EditorialWorkspace({
   const [aiInstruction, setAiInstruction] = useState("");
   const [agentSpecification, setAgentSpecification] = useState("");
   const [lastImportedTerms, setLastImportedTerms] = useState<string[]>([]);
+  const [externalProposal, setExternalProposal] =
+    useState<ImportableQuestionSpecification | null>(null);
+  const [proposalAgentName, setProposalAgentName] = useState("");
+  const [proposalModelName, setProposalModelName] = useState("");
+  const [acceptedProposalParts, setAcceptedProposalParts] = useState<Set<string>>(
+    new Set(),
+  );
   const [editorVerifiedStatus, setEditorVerifiedStatus] = useState("OPEN");
   const [scope, setScope] = useState<"review" | "archive">("review");
   const [workspaceMode, setWorkspaceMode] = useState<"review" | "create">(
@@ -467,6 +475,7 @@ export function EditorialWorkspace({
         timeline?: TimelineEditorEvent[];
         keyTerms?: KeyTermEditorItem[];
         reviewCount?: number;
+        externalProposal?: unknown;
       };
       if (!response.ok)
         throw new Error(result.error ?? "The editorial request failed.");
@@ -663,6 +672,23 @@ export function EditorialWorkspace({
       setProposal(null);
       setAgentSpecification("");
       setLastImportedTerms([]);
+      setExternalProposal(null);
+      setAcceptedProposalParts(new Set());
+      const savedProposal = await api(
+        `/api/editorial/questions/${question.id}/proposal`,
+      );
+      const persisted = savedProposal.externalProposal as
+        | {
+            specification?: ImportableQuestionSpecification;
+            agentName?: string;
+            modelName?: string;
+          }
+        | undefined;
+      if (persisted?.specification) {
+        setExternalProposal(persisted.specification);
+        setProposalAgentName(persisted.agentName ?? "");
+        setProposalModelName(persisted.modelName ?? "");
+      }
       setMessage("Story editor opened.");
     } catch (error) {
       setMessage(
@@ -844,36 +870,29 @@ export function EditorialWorkspace({
           ]),
         ),
       });
-      if (
-        !window.confirm(
-          "Load this external specification into the unsaved working copy? Current unsaved fields will be replaced.",
-        )
-      )
-        return;
-      setEditorContext(imported.contextSummary);
-      setEditorCategoryId(imported.categoryId);
-      setEditorVerifiedStatus(imported.verifiedStatus);
-      setEditorSections(imported.sections);
-      setEditorTimeline(imported.timeline);
-      setEditorKeyTerms(imported.keyTerms);
-      setEditorPeople(imported.people);
-      setEditorAnswerAttempts(
-        imported.answerAttempts.map((attempt) => ({
-          ...attempt,
-          approved: false,
-        })),
-      );
-      setRelationshipSuggestions(imported.relationships);
-      setApprovedRelationships(new Set());
-      setProposal(null);
+      setExternalProposal(imported);
+      setAcceptedProposalParts(new Set());
       setAgentSpecification("");
       setLastImportedTerms(imported.keyTerms.map((item) => item.term));
+      void api(`/api/editorial/questions/${editing.id}/proposal`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          specification: imported,
+          agentName: proposalAgentName,
+          modelName: proposalModelName,
+        }),
+      }).catch(() =>
+        setMessage(
+          "Proposal loaded for review, but its private saved copy could not be updated.",
+        ),
+      );
       setMessage(
-        `External specification loaded with ${imported.sections.length} Story sections, ${imported.keyTerms.length} key term${imported.keyTerms.length === 1 ? "" : "s"}, and ${imported.people.length} associated ${imported.people.length === 1 ? "person" : "people"}. Sources and connections remain unapproved; review them before saving.`,
+        `External proposal staged with ${imported.sections.length} Story sections, ${imported.keyTerms.length} key term${imported.keyTerms.length === 1 ? "" : "s"}, and ${imported.people.length} associated ${imported.people.length === 1 ? "person" : "people"}. Choose which parts to apply.`,
       );
       window.setTimeout(
         () =>
-          document.getElementById("quality-terms")?.scrollIntoView({
+          document.getElementById("external-proposal-review")?.scrollIntoView({
             behavior: "smooth",
             block: "start",
           }),
@@ -884,6 +903,57 @@ export function EditorialWorkspace({
         error instanceof Error
           ? `Import rejected: ${error.message}`
           : "The external specification could not be imported.",
+      );
+    }
+  }
+
+  function applyExternalProposal() {
+    if (!externalProposal || !acceptedProposalParts.size) return;
+    if (acceptedProposalParts.has("summary"))
+      setEditorContext(externalProposal.contextSummary);
+    if (acceptedProposalParts.has("classification")) {
+      setEditorCategoryId(externalProposal.categoryId);
+      setEditorVerifiedStatus(externalProposal.verifiedStatus);
+    }
+    if (acceptedProposalParts.has("story"))
+      setEditorSections(externalProposal.sections);
+    if (acceptedProposalParts.has("timeline"))
+      setEditorTimeline(externalProposal.timeline);
+    if (acceptedProposalParts.has("terms"))
+      setEditorKeyTerms(externalProposal.keyTerms);
+    if (acceptedProposalParts.has("people"))
+      setEditorPeople(externalProposal.people);
+    if (acceptedProposalParts.has("sources"))
+      setEditorAnswerAttempts(
+        externalProposal.answerAttempts.map((attempt) => ({
+          ...attempt,
+          approved: false,
+        })),
+      );
+    if (acceptedProposalParts.has("connections")) {
+      setRelationshipSuggestions(externalProposal.relationships);
+      setApprovedRelationships(new Set());
+    }
+    setProposal(null);
+    setMessage(
+      `${acceptedProposalParts.size} selected external proposal part${acceptedProposalParts.size === 1 ? "" : "s"} applied to the unsaved working copy. Sources and connections remain unapproved.`,
+    );
+  }
+
+  async function discardExternalProposal() {
+    if (!editing || !externalProposal) return;
+    if (!window.confirm("Discard this saved external proposal?")) return;
+    try {
+      await api(`/api/editorial/questions/${editing.id}/proposal`, {
+        method: "DELETE",
+      });
+      setExternalProposal(null);
+      setAcceptedProposalParts(new Set());
+      setLastImportedTerms([]);
+      setMessage("External proposal discarded. The working copy was unchanged.");
+    } catch (error) {
+      setMessage(
+        error instanceof Error ? error.message : "Unable to discard proposal.",
       );
     }
   }
@@ -1491,6 +1561,30 @@ export function EditorialWorkspace({
                         targets, plus the exact JSON response contract. An
                         import changes only this unsaved editor.
                       </p>
+                      <div className="agent-provenance-fields">
+                        <label>
+                          External agent or provider
+                          <input
+                            value={proposalAgentName}
+                            maxLength={120}
+                            onChange={(event) =>
+                              setProposalAgentName(event.target.value)
+                            }
+                            placeholder="For example: Claude"
+                          />
+                        </label>
+                        <label>
+                          Model
+                          <input
+                            value={proposalModelName}
+                            maxLength={120}
+                            onChange={(event) =>
+                              setProposalModelName(event.target.value)
+                            }
+                            placeholder="Optional model identifier"
+                          />
+                        </label>
+                      </div>
                       <div className="agent-exchange-actions">
                         <button
                           type="button"
@@ -1576,6 +1670,124 @@ export function EditorialWorkspace({
                             Review imported terms
                           </button>
                         </aside>
+                      )}
+                      {externalProposal && (
+                        <section
+                          className="external-proposal-review"
+                          id="external-proposal-review"
+                        >
+                          <header>
+                            <div>
+                              <span className="eyebrow">Private proposal</span>
+                              <h4>Compare and select what to apply</h4>
+                              <small>
+                                {proposalAgentName || "Unspecified agent"}
+                                {proposalModelName
+                                  ? ` · ${proposalModelName}`
+                                  : ""}
+                              </small>
+                            </div>
+                            <button
+                              type="button"
+                              className="text-link"
+                              onClick={() => void discardExternalProposal()}
+                            >
+                              Discard proposal
+                            </button>
+                          </header>
+                          {[
+                            {
+                              key: "summary",
+                              label: "Context summary",
+                              current: editorContext,
+                              proposed: externalProposal.contextSummary,
+                            },
+                            {
+                              key: "classification",
+                              label: "Classification",
+                              current: `${editorCategoryId} · ${editorVerifiedStatus}`,
+                              proposed: `${externalProposal.categoryId} · ${externalProposal.verifiedStatus}`,
+                            },
+                            {
+                              key: "story",
+                              label: "Story sections",
+                              current: `${editorSections.length} sections`,
+                              proposed: `${externalProposal.sections.length} sections`,
+                            },
+                            {
+                              key: "timeline",
+                              label: "Question history",
+                              current: `${editorTimeline.length} events`,
+                              proposed: `${externalProposal.timeline.length} events`,
+                            },
+                            {
+                              key: "terms",
+                              label: "Key terms",
+                              current: editorKeyTerms.map((item) => item.term).join(", ") || "None",
+                              proposed:
+                                externalProposal.keyTerms
+                                  .map((item) => item.term)
+                                  .join(", ") || "None",
+                            },
+                            {
+                              key: "people",
+                              label: "People",
+                              current: editorPeople.map((item) => item.name).join(", ") || "None",
+                              proposed:
+                                externalProposal.people
+                                  .map((item) => item.name)
+                                  .join(", ") || "None",
+                            },
+                            {
+                              key: "sources",
+                              label: "Sources",
+                              current: `${editorAnswerAttempts.length} source records`,
+                              proposed: `${externalProposal.answerAttempts.length} unverified proposals`,
+                            },
+                            {
+                              key: "connections",
+                              label: "Connections",
+                              current: `${relationshipSuggestions.length} proposals`,
+                              proposed: `${externalProposal.relationships.length} unverified proposals`,
+                            },
+                          ].map((part) => (
+                            <article key={part.key}>
+                              <label>
+                                <input
+                                  type="checkbox"
+                                  checked={acceptedProposalParts.has(part.key)}
+                                  onChange={(event) =>
+                                    setAcceptedProposalParts((current) => {
+                                      const next = new Set(current);
+                                      if (event.target.checked) next.add(part.key);
+                                      else next.delete(part.key);
+                                      return next;
+                                    })
+                                  }
+                                />
+                                <strong>{part.label}</strong>
+                              </label>
+                              <div>
+                                <span>
+                                  <small>Current</small>
+                                  {part.current}
+                                </span>
+                                <span>
+                                  <small>Proposed</small>
+                                  {part.proposed}
+                                </span>
+                              </div>
+                            </article>
+                          ))}
+                          <button
+                            type="button"
+                            className="button small"
+                            disabled={!acceptedProposalParts.size}
+                            onClick={applyExternalProposal}
+                          >
+                            Apply selected parts to working copy
+                          </button>
+                        </section>
                       )}
                     </div>
                   </details>
