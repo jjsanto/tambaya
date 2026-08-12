@@ -866,7 +866,7 @@ export function EditorialWorkspace({
       setProposal(null);
       setAgentSpecification("");
       setMessage(
-        "External specification loaded into the unsaved working copy. Sources and connections remain unapproved; review them before saving.",
+        `External specification loaded with ${imported.sections.length} Story sections, ${imported.keyTerms.length} key term${imported.keyTerms.length === 1 ? "" : "s"}, and ${imported.people.length} associated ${imported.people.length === 1 ? "person" : "people"}. Sources and connections remain unapproved; review them before saving.`,
       );
     } catch (error) {
       setMessage(

@@ -151,6 +151,12 @@ function array(value: unknown, label: string, max: number) {
     throw new Error(`${label} must be an array with at most ${max} items.`);
   return value;
 }
+function firstDefined(source: Record<string, unknown>, keys: string[]) {
+  for (const key of keys) {
+    if (source[key] !== undefined) return source[key];
+  }
+  return undefined;
+}
 function blocks(value: unknown): StoryBlock[] | undefined {
   if (value === undefined) return undefined;
   const items = array(value, "Story blocks", 40);
@@ -244,9 +250,21 @@ export function parseQuestionSpecification(
       description: text(event.description),
     };
   });
-  const keyTerms = array(candidate.keyTerms ?? [], "Key terms", 8).map((rawTerm) => {
-    const term = record(rawTerm, "Key term");
-    return { term: text(term.term), description: text(term.description) };
+  const keyTerms = array(
+    firstDefined(candidate, ["keyTerms", "key_terms", "terms"]) ?? [],
+    "Key terms",
+    8,
+  ).map((rawTerm, index) => {
+    const term = record(rawTerm, `Key term ${index + 1}`);
+    const name = text(firstDefined(term, ["term", "name", "title"]));
+    const description = text(
+      firstDefined(term, ["description", "definition", "meaning"]),
+    );
+    if (!name || !description)
+      throw new Error(
+        `Key term ${index + 1} needs both a term and a description.`,
+      );
+    return { term: name, description };
   });
   const people = array(candidate.people ?? [], "People", 12).map((rawPerson) => {
     const person = record(rawPerson, "Person");

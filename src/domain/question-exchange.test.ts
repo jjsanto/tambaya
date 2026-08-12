@@ -63,4 +63,43 @@ describe("question specification exchange", () => {
       ),
     ).toThrow("different question");
   });
+
+  it("imports common external-agent key-term field variants", () => {
+    const external = {
+      ...specification,
+      keyTerms: undefined,
+      key_terms: [
+        {
+          name: "Subjective experience",
+          definition:
+            "The first-person character of awareness as distinguished from behavioral report or measurement, a distinction that determines which evidence different approaches treat as relevant to the question.",
+        },
+      ],
+    };
+    const result = parseQuestionSpecification(
+      JSON.stringify({ questionId: "q-1", specification: external }),
+      constraints,
+    );
+    expect(result.keyTerms).toEqual([
+      {
+        term: "Subjective experience",
+        description:
+          "The first-person character of awareness as distinguished from behavioral report or measurement, a distinction that determines which evidence different approaches treat as relevant to the question.",
+      },
+    ]);
+  });
+
+  it("rejects malformed key terms instead of silently dropping their content", () => {
+    const external = {
+      ...specification,
+      keyTerms: undefined,
+      terms: [{ term: "Subjective experience" }],
+    };
+    expect(() =>
+      parseQuestionSpecification(
+        JSON.stringify({ questionId: "q-1", specification: external }),
+        constraints,
+      ),
+    ).toThrow("both a term and a description");
+  });
 });
