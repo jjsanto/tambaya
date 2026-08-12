@@ -69,6 +69,7 @@ type EditableAnswerAttempt = {
   unresolved: string;
 };
 type EditableKeyTerm = { term: string; description: string };
+type EditablePerson = { name: string; period: string; association: string };
 type AnswerAttemptRow = Omit<
   EditableAnswerAttempt,
   "url" | "publicationDate"
@@ -246,6 +247,7 @@ export async function GET(
     categoriesResult,
     timelineResult,
     keyTermsResult,
+    peopleResult,
     answerAttemptsResult,
   ] = await Promise.all([
     env.DB.prepare(
@@ -296,6 +298,9 @@ export async function GET(
       "SELECT term,description FROM question_key_terms WHERE question_id=? ORDER BY position",
     ).bind(id).all<EditableKeyTerm>(),
     env.DB.prepare(
+      "SELECT name,period,association FROM person_associations WHERE question_id=? ORDER BY position",
+    ).bind(id).all<EditablePerson>(),
+    env.DB.prepare(
       "SELECT title,author,publisher,source_url,publication_date,approach,scope,significance,unresolved FROM question_answer_attempts WHERE question_id=? AND verified=1 ORDER BY position",
     )
       .bind(id)
@@ -327,6 +332,7 @@ export async function GET(
         sections?: EditableSection[];
         timeline?: EditableTimelineEvent[];
         keyTerms?: EditableKeyTerm[];
+        people?: EditablePerson[];
         answerAttempts?: EditableAnswerAttempt[];
       })
     : null;
@@ -357,6 +363,7 @@ export async function GET(
             description: event.description,
           })),
         keyTerms: workingCopy?.keyTerms ?? keyTermsResult.results ?? [],
+        people: workingCopy?.people ?? peopleResult.results ?? [],
         answerAttempts:
           workingCopy?.answerAttempts ??
           (answerAttemptsResult.results ?? []).map((attempt) => ({
@@ -517,6 +524,14 @@ export async function PATCH(
                   "SELECT term,description FROM question_key_terms WHERE question_id=? ORDER BY position",
                 ).bind(id).all<EditableKeyTerm>()
               ).results ?? [],
+            people:
+              (
+                await env.DB.prepare(
+                  "SELECT name,period,association FROM person_associations WHERE question_id=? ORDER BY position",
+                )
+                  .bind(id)
+                  .all<EditablePerson>()
+              ).results ?? [],
             answerAttempts:
               (
                 await env.DB.prepare(
@@ -610,6 +625,31 @@ export async function PATCH(
         { error: "Key terms must be unique." },
         { status: 400 },
       );
+    if (!Array.isArray(body.people) || body.people.length > 12)
+      return Response.json(
+        { error: "Provide up to 12 people associated with the inquiry." },
+        { status: 400 },
+      );
+    const people: EditablePerson[] = [];
+    for (const [position, raw] of body.people.entries()) {
+      const person = raw as Record<string, unknown>;
+      const item = {
+        name: String(person.name ?? "").trim(),
+        period: String(person.period ?? "").trim(),
+        association: String(person.association ?? "").trim(),
+      };
+      if (
+        item.name.length < 3 ||
+        !item.period ||
+        item.association.length < 60 ||
+        hasLikelyAnswerLeak(item.association)
+      )
+        return Response.json(
+          { error: `Person ${position + 1} needs a name, period, and specific answer-free association of at least 60 characters.` },
+          { status: 400 },
+        );
+      people.push(item);
+    }
     if (!Array.isArray(body.answerAttempts) || body.answerAttempts.length > 10)
       return Response.json(
         { error: "Choose up to 10 verified answer attempts." },
@@ -772,6 +812,7 @@ export async function PATCH(
       timeline,
       answerAttempts,
       keyTerms,
+      people,
       relationships,
     });
     if (isPublishedRevision) {
@@ -830,12 +871,20 @@ export async function PATCH(
       env.DB.prepare("DELETE FROM question_key_terms WHERE question_id=?").bind(
         id,
       ),
+      env.DB.prepare("DELETE FROM person_associations WHERE question_id=?").bind(id),
     ];
     keyTerms.forEach((item, position) =>
       statements.push(
         env.DB.prepare(
           "INSERT INTO question_key_terms (id,question_id,term,description,position) VALUES (?,?,?,?,?)",
         ).bind(crypto.randomUUID(), id, item.term, item.description, position),
+      ),
+    );
+    people.forEach((person, position) =>
+      statements.push(
+        env.DB.prepare(
+          "INSERT INTO person_associations (id,question_id,name,period,association,position) VALUES (?,?,?,?,?,?)",
+        ).bind(crypto.randomUUID(), id, person.name, person.period, person.association, position),
       ),
     );
     answerAttempts.forEach((attempt, position) =>
@@ -973,6 +1022,7 @@ export async function PATCH(
       timeline?: EditableTimelineEvent[];
       answerAttempts?: EditableAnswerAttempt[];
       keyTerms?: EditableKeyTerm[];
+      people?: EditablePerson[];
       relationships?: ApprovedRelationship[];
     };
     const referenceCount = await env.DB.prepare(
@@ -1048,12 +1098,20 @@ export async function PATCH(
       env.DB.prepare("DELETE FROM question_key_terms WHERE question_id=?").bind(
         id,
       ),
+      env.DB.prepare("DELETE FROM person_associations WHERE question_id=?").bind(id),
     ];
     (revised.keyTerms ?? []).forEach((item, position) =>
       statements.push(
         env.DB.prepare(
           "INSERT INTO question_key_terms (id,question_id,term,description,position) VALUES (?,?,?,?,?)",
         ).bind(crypto.randomUUID(), id, item.term, item.description, position),
+      ),
+    );
+    (revised.people ?? []).forEach((person, position) =>
+      statements.push(
+        env.DB.prepare(
+          "INSERT INTO person_associations (id,question_id,name,period,association,position) VALUES (?,?,?,?,?,?)",
+        ).bind(crypto.randomUUID(), id, person.name, person.period, person.association, position),
       ),
     );
     (revised.answerAttempts ?? []).forEach((attempt, position) =>

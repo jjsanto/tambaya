@@ -24,6 +24,7 @@ export type ImportableQuestionSpecification = {
   }[];
   timeline: { displayDate: string; title: string; description: string }[];
   keyTerms: { term: string; description: string }[];
+  people: { name: string; period: string; association: string }[];
   answerAttempts: {
     title: string;
     author: string;
@@ -102,6 +103,7 @@ export function buildQuestionAgentBrief(input: AgentBriefInput) {
       "Provide 5–10 substantial Story sections with answer-free paragraphs of at least 80 characters.",
       "Provide 3–8 historical timeline events with descriptions of at least 60 characters.",
       "Key terms are optional; include only question-specific definitions of at least 80 characters.",
+      "Include people only when their documented work materially shaped this exact question; provide a period and a specific answer-free association.",
       "Use only credible HTTPS URLs. Sources and relationship proposals require later human approval.",
       "Suggest connections by comparing this question with the complete sameCategoryQuestions list. Use only supplied target IDs and supported relationship types.",
       "Return JSON only, without Markdown fences or commentary.",
@@ -126,6 +128,7 @@ export function buildQuestionAgentBrief(input: AgentBriefInput) {
           "array of {key,kicker,title,paragraphs:string[],blocks?:StoryBlock[]}",
         timeline: "array of {displayDate,title,description}",
         keyTerms: "array of {term,description}; may be empty",
+        people: "array of {name,period,association}; may be empty",
         answerAttempts:
           "array of {title,author,publisher,url,publicationDate,approach,scope,significance,unresolved}",
         relationships:
@@ -245,6 +248,14 @@ export function parseQuestionSpecification(
     const term = record(rawTerm, "Key term");
     return { term: text(term.term), description: text(term.description) };
   });
+  const people = array(candidate.people ?? [], "People", 12).map((rawPerson) => {
+    const person = record(rawPerson, "Person");
+    return {
+      name: text(person.name),
+      period: text(person.period),
+      association: text(person.association),
+    };
+  });
   const answerAttempts = array(
     candidate.answerAttempts ?? [],
     "Answer attempts",
@@ -297,6 +308,7 @@ export function parseQuestionSpecification(
     sections,
     timeline,
     keyTerms,
+    people,
     answerAttempts,
     relationships,
   };

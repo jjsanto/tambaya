@@ -24,6 +24,7 @@ const specification = {
       "New methods and institutions changed who could formulate this question and which forms of evidence could be considered relevant to its continuing history.",
   })),
   keyTerms: [],
+  people: [],
   answerAttempts: [],
   relationships: [],
 };

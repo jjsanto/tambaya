@@ -48,6 +48,7 @@ type TimelineEditorEvent = {
   description: string;
 };
 type KeyTermEditorItem = { term: string; description: string };
+type PersonEditorItem = { name: string; period: string; association: string };
 type AnswerAttemptEditorItem = EnrichmentProposal["answerAttempts"][number] & {
   approved: boolean;
 };
@@ -57,6 +58,7 @@ type EditorialDetail = EditorialQuestion & {
   sections: StoryEditorSection[];
   timeline: TimelineEditorEvent[];
   keyTerms: KeyTermEditorItem[];
+  people: PersonEditorItem[];
   answerAttempts: EnrichmentProposal["answerAttempts"];
   liveSections: StoryEditorSection[];
   hasPendingRevision: boolean;
@@ -367,6 +369,7 @@ export function EditorialWorkspace({
     [],
   );
   const [editorKeyTerms, setEditorKeyTerms] = useState<KeyTermEditorItem[]>([]);
+  const [editorPeople, setEditorPeople] = useState<PersonEditorItem[]>([]);
   const [editorAnswerAttempts, setEditorAnswerAttempts] = useState<
     AnswerAttemptEditorItem[]
   >([]);
@@ -634,6 +637,7 @@ export function EditorialWorkspace({
       setEditorSections(detail.sections.length ? detail.sections : defaults);
       setEditorTimeline(detail.timeline ?? []);
       setEditorKeyTerms(detail.keyTerms ?? []);
+      setEditorPeople(detail.people ?? []);
       setEditorAnswerAttempts(
         (detail.answerAttempts ?? []).map((attempt) => ({
           ...attempt,
@@ -779,6 +783,7 @@ export function EditorialWorkspace({
         sections: editorSections,
         timeline: editorTimeline,
         keyTerms: editorKeyTerms,
+        people: editorPeople,
         answerAttempts: editorAnswerAttempts.map((attempt) => ({
           title: attempt.title,
           author: attempt.author,
@@ -849,6 +854,7 @@ export function EditorialWorkspace({
       setEditorSections(imported.sections);
       setEditorTimeline(imported.timeline);
       setEditorKeyTerms(imported.keyTerms);
+      setEditorPeople(imported.people);
       setEditorAnswerAttempts(
         imported.answerAttempts.map((attempt) => ({
           ...attempt,
@@ -894,6 +900,7 @@ export function EditorialWorkspace({
             contextSummary: editorContext,
             timeline: editorTimeline,
             keyTerms: editorKeyTerms,
+            people: editorPeople,
             answerAttempts: editorAnswerAttempts,
             verifiedStatus: editorVerifiedStatus,
             categoryId: editorCategoryId,
@@ -917,6 +924,7 @@ export function EditorialWorkspace({
       setEditorContext(result.proposal.contextSummary);
       setEditorTimeline(result.proposal.timeline);
       setEditorKeyTerms(result.proposal.keyTerms);
+      setEditorPeople(result.proposal.people);
       setEditorAnswerAttempts(
         result.proposal.answerAttempts.map((attempt) => ({
           ...attempt,
@@ -953,6 +961,7 @@ export function EditorialWorkspace({
           contextSummary: editorContext,
           timeline: editorTimeline,
           keyTerms: editorKeyTerms,
+          people: editorPeople,
           answerAttempts: editorAnswerAttempts.filter(
             (attempt) => attempt.approved,
           ),
@@ -995,6 +1004,7 @@ export function EditorialWorkspace({
           contextSummary: editorContext,
           timeline: editorTimeline,
           keyTerms: editorKeyTerms,
+          people: editorPeople,
           answerAttempts: editorAnswerAttempts.filter(
             (attempt) => attempt.approved,
           ),
@@ -1080,6 +1090,7 @@ export function EditorialWorkspace({
           contextSummary: editorContext,
           timeline: editorTimeline,
           keyTerms: editorKeyTerms,
+          people: editorPeople,
           answerAttempts: editorAnswerAttempts.filter(
             (attempt) => attempt.approved,
           ),
@@ -1354,6 +1365,19 @@ export function EditorialWorkspace({
                             <article key={`${item.term}-${index}`}>
                               <h3>{item.term}</h3>
                               <p>{item.description}</p>
+                            </article>
+                          ))}
+                        </section>
+                      )}
+                      {editorPeople.length > 0 && (
+                        <section>
+                          <span className="eyebrow">People in its history</span>
+                          <h2>Associated with the inquiry</h2>
+                          {editorPeople.map((person, index) => (
+                            <article key={`${person.name}-${index}`}>
+                              <small>{person.period}</small>
+                              <h3>{person.name}</h3>
+                              <p>{person.association}</p>
                             </article>
                           ))}
                         </section>
@@ -1930,6 +1954,98 @@ export function EditorialWorkspace({
                       }
                     >
                       Add key term
+                    </button>
+                  </fieldset>
+                  <fieldset>
+                    <legend>People associated with the inquiry</legend>
+                    <p>
+                      Include people whose documented work materially changed
+                      how this question was framed, investigated, or debated.
+                    </p>
+                    {editorPeople.map((person, index) => (
+                      <div className="timeline-editor-event" key={index}>
+                        <label>
+                          Name
+                          <input
+                            required
+                            minLength={3}
+                            value={person.name}
+                            onChange={(event) =>
+                              setEditorPeople((current) =>
+                                current.map((item, position) =>
+                                  position === index
+                                    ? { ...item, name: event.target.value }
+                                    : item,
+                                ),
+                              )
+                            }
+                          />
+                        </label>
+                        <label>
+                          Life or active period
+                          <input
+                            required
+                            value={person.period}
+                            placeholder="For example: 1842–1910"
+                            onChange={(event) =>
+                              setEditorPeople((current) =>
+                                current.map((item, position) =>
+                                  position === index
+                                    ? { ...item, period: event.target.value }
+                                    : item,
+                                ),
+                              )
+                            }
+                          />
+                        </label>
+                        <label>
+                          Specific association with this question
+                          <textarea
+                            required
+                            minLength={60}
+                            rows={4}
+                            value={person.association}
+                            onChange={(event) =>
+                              setEditorPeople((current) =>
+                                current.map((item, position) =>
+                                  position === index
+                                    ? {
+                                        ...item,
+                                        association: event.target.value,
+                                      }
+                                    : item,
+                                ),
+                              )
+                            }
+                          />
+                        </label>
+                        <button
+                          type="button"
+                          className="text-link"
+                          onClick={() =>
+                            setEditorPeople((current) =>
+                              current.filter(
+                                (_, position) => position !== index,
+                              ),
+                            )
+                          }
+                        >
+                          Remove person
+                        </button>
+                      </div>
+                    ))}
+                    <button
+                      type="button"
+                      className="button ghost small"
+                      disabled={editorPeople.length >= 12}
+                      onClick={() =>
+                        setEditorPeople((current) => [
+                          ...current,
+                          { name: "", period: "", association: "" },
+                        ])
+                      }
+                    >
+                      Add person
                     </button>
                   </fieldset>
                   <fieldset id="quality-timeline">

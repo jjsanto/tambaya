@@ -109,6 +109,20 @@ const schema = {
         required: ["term", "description"],
       },
     },
+    people: {
+      type: "array",
+      minItems: 0,
+      maxItems: 8,
+      items: {
+        type: "object",
+        properties: {
+          name: { type: "string", minLength: 3 },
+          period: { type: "string", minLength: 2 },
+          association: { type: "string", minLength: 60, maxLength: 500 },
+        },
+        required: ["name", "period", "association"],
+      },
+    },
     suggestedStatus: {
       type: "string",
       enum: ["OPEN", "PARTIALLY_ANSWERED", "ANSWERED"],
@@ -169,6 +183,7 @@ const schema = {
     "timeline",
     "sections",
     "keyTerms",
+    "people",
     "suggestedStatus",
     "statusConfidence",
     "statusRationale",
@@ -196,6 +211,7 @@ export async function POST(
     contextSummary?: unknown;
     sections?: unknown;
     keyTerms?: unknown;
+    people?: unknown;
     timeline?: unknown;
     answerAttempts?: unknown;
     verifiedStatus?: unknown;
@@ -297,13 +313,14 @@ Category: ${question.category_name}
 Current editorial answer status: ${workingStatus}
 Existing context: ${question.context_summary}
 Existing source records: ${JSON.stringify(references.results ?? [])}
-Current unsaved working copy: ${JSON.stringify({ contextSummary: body.contextSummary, timeline: body.timeline, answerAttempts: body.answerAttempts, keyTerms: body.keyTerms, sections: body.sections })}
+Current unsaved working copy: ${JSON.stringify({ contextSummary: body.contextSummary, timeline: body.timeline, answerAttempts: body.answerAttempts, keyTerms: body.keyTerms, people: body.people, sections: body.sections })}
 Editorial change request: ${instruction || "Create a comprehensive general enrichment."}
 Existing question candidates: ${JSON.stringify(candidatesResult.results ?? [])}
 
 Write a concise 45–60 word context summary, a chronological 3–6 event timeline showing how the asking changed, and 5–6 encyclopedic Story sections about the question's origins, changing vocabulary, history of inquiry, significance, appearances across fields, methodological difficulties, and lines of further inquiry. Timeline displayDate values may be a year, period, or era; each event must identify a genuine change in framing, vocabulary, audience, or method rather than an alleged answer. Each section paragraph must contain 90–140 words. Explain the QUESTION and its history; do not state, imply, or summarize an answer. Never use phrases such as “the answer is”, “this proves”, or “therefore the answer”. The summary, timeline, lists, and callouts must also remain contextual.
 
 Propose 0–8 key terms only when they genuinely clarify this particular question. Each description must define the term concretely in 25–55 words and explain why that precise meaning changes the framing of this question. Never describe a term merely as “recurring”, “central”, “important”, or as something whose meaning “varies across contexts”. A description must not be reusable unchanged for another term or question. Return an empty keyTerms array when useful definitions cannot be supplied.
+Propose 0–8 real people whose documented work materially shaped how this exact question was framed, investigated, or debated. Give a concise life/active period and at least 60 characters explaining the specific association without stating an answer. Do not include merely famous people with a weak connection.
 
 Suggest an answer-status classification only as metadata about whether sufficiently established answers exist outside Tambaya. The rationale must describe verification scope and uncertainty without disclosing any answer. Treat statusConfidence as LOW unless the supplied source records support a stronger assessment. Source leads must be credible HTTPS references for an editor to verify; never fabricate article titles or URLs.
 

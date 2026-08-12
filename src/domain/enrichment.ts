@@ -24,6 +24,7 @@ export type EnrichmentProposal = {
   }[];
   sections: EnrichmentSection[];
   keyTerms: { term: string; description: string }[];
+  people: { name: string; period: string; association: string }[];
   suggestedStatus: AnswerStatus;
   statusConfidence: "LOW" | "MEDIUM" | "HIGH";
   statusRationale: string;
@@ -171,6 +172,22 @@ export function parseEnrichmentProposal(value: unknown): EnrichmentProposal {
     throw new Error("AI returned duplicate key terms.");
   if (new Set(keyTerms.map(item => item.description.toLowerCase())).size !== keyTerms.length)
     throw new Error("AI returned repeated key-term descriptions.");
+  const people = (Array.isArray(candidate.people) ? candidate.people : [])
+    .slice(0, 12)
+    .map((raw, index) => {
+      const person = raw as Record<string, unknown>;
+      const name = clean(person.name);
+      const period = clean(person.period);
+      const association = clean(person.association);
+      if (
+        name.length < 3 ||
+        !period ||
+        association.length < 60 ||
+        hasLikelyAnswerLeak(association)
+      )
+        throw new Error(`AI person ${index + 1} is incomplete or unsafe.`);
+      return { name, period, association };
+    });
   const suggestedStatus = clean(candidate.suggestedStatus);
   if (!answerStatuses.includes(suggestedStatus as AnswerStatus))
     throw new Error("AI returned an invalid status suggestion.");
@@ -277,6 +294,7 @@ export function parseEnrichmentProposal(value: unknown): EnrichmentProposal {
     timeline,
     sections,
     keyTerms,
+    people,
     suggestedStatus: suggestedStatus as AnswerStatus,
     statusConfidence: ["LOW", "MEDIUM", "HIGH"].includes(confidence)
       ? (confidence as "LOW" | "MEDIUM" | "HIGH")
