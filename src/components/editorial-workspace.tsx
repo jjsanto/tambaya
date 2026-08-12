@@ -70,6 +70,7 @@ type EditorialDetail = EditorialQuestion & {
     slug: string;
     questionText: string;
     category: string;
+    categoryId: string;
   }[];
 };
 
@@ -763,11 +764,14 @@ export function EditorialWorkspace({
 
   function currentAgentBrief() {
     if (!editing) throw new Error("Open a question before exporting it.");
+    const sameCategoryQuestions = editing.candidates.filter(
+      (candidate) => candidate.categoryId === editorCategoryId,
+    );
     return buildQuestionAgentBrief({
       questionId: editing.id,
       questionTitle: editing.question_text,
       categories: editing.categories,
-      relationshipCandidates: editing.candidates,
+      relationshipCandidates: sameCategoryQuestions,
       currentSpecification: {
         contextSummary: editorContext,
         categoryId: editorCategoryId,
@@ -825,7 +829,9 @@ export function EditorialWorkspace({
         questionId: editing.id,
         categoryIds: new Set(editing.categories.map((category) => category.id)),
         relationshipTargets: new Map(
-          editing.candidates.map((candidate) => [
+          editing.candidates
+            .filter((candidate) => candidate.categoryId === editorCategoryId)
+            .map((candidate) => [
             candidate.id,
             { slug: candidate.slug, questionText: candidate.questionText },
           ]),

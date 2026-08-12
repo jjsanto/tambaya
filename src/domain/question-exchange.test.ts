@@ -45,6 +45,8 @@ describe("question specification exchange", () => {
     expect(brief.protocol).toBe("tambaya.question-specification");
     expect(brief.currentSpecification.sections).toHaveLength(5);
     expect(brief.responseContract.questionId).toBe("q-1");
+    expect(brief.connectionGuidance.supportedTypes).toHaveLength(7);
+    expect(brief.connectionGuidance.sameCategoryQuestions).toEqual([]);
   });
 
   it("imports bare or fenced agent JSON for the current question", () => {

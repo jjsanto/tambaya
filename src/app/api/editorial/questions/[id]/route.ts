@@ -110,6 +110,7 @@ type CandidateQuestion = {
   slug: string;
   questionText: string;
   category: string;
+  categoryId: string;
 };
 
 function publicationBlocked(
@@ -278,7 +279,7 @@ export async function GET(
       .bind(id)
       .all<RelationshipRow>(),
     env.DB.prepare(
-      "SELECT id,slug,question_text questionText,category_name category FROM questions WHERE id<>? AND publication_state='PUBLISHED' ORDER BY question_text LIMIT 500",
+      "SELECT id,slug,question_text questionText,category_name category,category_id categoryId FROM questions WHERE id<>? AND publication_state='PUBLISHED' ORDER BY category_name,question_text",
     )
       .bind(id)
       .all<CandidateQuestion>(),

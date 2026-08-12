@@ -55,8 +55,40 @@ type AgentBriefInput = {
     slug: string;
     questionText: string;
     category: string;
+    categoryId: string;
   }[];
 };
+
+export const RELATIONSHIP_TYPE_GUIDE = [
+  {
+    type: "RELATED_TO",
+    meaning: "The questions address closely connected subjects without a stronger directional dependency.",
+  },
+  {
+    type: "LEADS_TO",
+    meaning: "Investigating the source question naturally raises the target question next.",
+  },
+  {
+    type: "DEPENDS_ON",
+    meaning: "Framing or investigating the source question relies on the target question.",
+  },
+  {
+    type: "REFINES",
+    meaning: "The source question narrows or makes the target question more precise.",
+  },
+  {
+    type: "GENERALIZES",
+    meaning: "The source question broadens the target question to a wider scope.",
+  },
+  {
+    type: "CHALLENGES",
+    meaning: "The source question disputes an assumption or framing embedded in the target question.",
+  },
+  {
+    type: "PRECEDES",
+    meaning: "The source question historically or logically comes before the target question.",
+  },
+] as const;
 
 export function buildQuestionAgentBrief(input: AgentBriefInput) {
   return {
@@ -71,11 +103,16 @@ export function buildQuestionAgentBrief(input: AgentBriefInput) {
       "Provide 3–8 historical timeline events with descriptions of at least 60 characters.",
       "Key terms are optional; include only question-specific definitions of at least 80 characters.",
       "Use only credible HTTPS URLs. Sources and relationship proposals require later human approval.",
-      "Use only category IDs and relationship target IDs supplied in this brief.",
+      "Suggest connections by comparing this question with the complete sameCategoryQuestions list. Use only supplied target IDs and supported relationship types.",
       "Return JSON only, without Markdown fences or commentary.",
     ],
     allowedCategories: input.categories,
-    allowedRelationshipTargets: input.relationshipCandidates,
+    connectionGuidance: {
+      supportedTypes: RELATIONSHIP_TYPE_GUIDE,
+      sameCategoryQuestions: input.relationshipCandidates,
+      instruction:
+        "Propose only meaningful connections. Use targetId, targetSlug, and targetQuestion exactly as supplied, choose the most specific supported type, score confidence from 0 to 1, and explain the rationale.",
+    },
     currentSpecification: input.currentSpecification,
     responseContract: {
       protocol: QUESTION_SPEC_PROTOCOL,
