@@ -385,6 +385,7 @@ export function EditorialWorkspace({
   const [manualTargetId, setManualTargetId] = useState("");
   const [aiInstruction, setAiInstruction] = useState("");
   const [agentSpecification, setAgentSpecification] = useState("");
+  const [lastImportedTerms, setLastImportedTerms] = useState<string[]>([]);
   const [editorVerifiedStatus, setEditorVerifiedStatus] = useState("OPEN");
   const [scope, setScope] = useState<"review" | "archive">("review");
   const [workspaceMode, setWorkspaceMode] = useState<"review" | "create">(
@@ -661,6 +662,7 @@ export function EditorialWorkspace({
       );
       setProposal(null);
       setAgentSpecification("");
+      setLastImportedTerms([]);
       setMessage("Story editor opened.");
     } catch (error) {
       setMessage(
@@ -865,8 +867,17 @@ export function EditorialWorkspace({
       setApprovedRelationships(new Set());
       setProposal(null);
       setAgentSpecification("");
+      setLastImportedTerms(imported.keyTerms.map((item) => item.term));
       setMessage(
         `External specification loaded with ${imported.sections.length} Story sections, ${imported.keyTerms.length} key term${imported.keyTerms.length === 1 ? "" : "s"}, and ${imported.people.length} associated ${imported.people.length === 1 ? "person" : "people"}. Sources and connections remain unapproved; review them before saving.`,
+      );
+      window.setTimeout(
+        () =>
+          document.getElementById("quality-terms")?.scrollIntoView({
+            behavior: "smooth",
+            block: "start",
+          }),
+        0,
       );
     } catch (error) {
       setMessage(
@@ -1540,6 +1551,32 @@ export function EditorialWorkspace({
                       >
                         Validate and load specification
                       </button>
+                      {lastImportedTerms.length > 0 && (
+                        <aside className="agent-import-result" aria-live="polite">
+                          <strong>
+                            Imported key terms ({lastImportedTerms.length})
+                          </strong>
+                          <div>
+                            {lastImportedTerms.map((term) => (
+                              <span key={term}>{term}</span>
+                            ))}
+                          </div>
+                          <button
+                            type="button"
+                            className="text-link"
+                            onClick={() =>
+                              document
+                                .getElementById("quality-terms")
+                                ?.scrollIntoView({
+                                  behavior: "smooth",
+                                  block: "start",
+                                })
+                            }
+                          >
+                            Review imported terms
+                          </button>
+                        </aside>
+                      )}
                     </div>
                   </details>
                   <section className="ai-change-request">

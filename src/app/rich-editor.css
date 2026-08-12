@@ -30,6 +30,10 @@
 .agent-exchange-actions { display: flex; flex-wrap: wrap; gap: 8px; }
 .file-button { position: relative; overflow: hidden; cursor: pointer; }
 .file-button input { position: absolute; width: 1px; height: 1px; opacity: 0; }
+.agent-import-result { display: grid; gap: 9px; padding: 14px; border-left: 3px solid #23845b; background: #edf7f1; color: var(--navy); }
+.agent-import-result div { display: flex; flex-wrap: wrap; gap: 7px; }
+.agent-import-result span { padding: 5px 8px; border: 1px solid #abd4bd; background: white; font-size: 11px; }
+.agent-import-result button { justify-self: start; border: 0; background: none; cursor: pointer; }
 .publication-checklist { display: grid; gap: 8px; padding: 18px; border: 1px solid currentColor; }
 .publication-checklist h4, .publication-checklist p { margin: 0; }
 .publication-checklist h4 { color: var(--navy); font: 500 20px var(--font-serif); }
