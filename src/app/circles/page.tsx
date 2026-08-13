@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import Image from "next/image";
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { getAuthDatabase, getCurrentUser } from "@/lib/auth";
@@ -46,13 +47,16 @@ export default async function CirclesPage({
   ]);
   return (
     <div className="page shell circles-page">
-      <header className="page-intro">
+      <header className="circles-hero">
+       <div className="page-intro">
         <span className="eyebrow">Private conversations</span>
         <h1>Tambaya Circles</h1>
         <p>
           Invite people you trust to discuss questions privately. Circle
           messages never become public Tambaya content.
         </p>
+       </div>
+       <Image className="circles-meerkats" src="/images/tambaya-meerkat-circles.png" width={1536} height={1024} priority sizes="(max-width: 900px) 92vw, 48vw" alt="Four meerkat friends collaborate around a shared circle of connected questions"/>
       </header>
       {(invitations.results ?? []).length > 0 && (
         <section>
