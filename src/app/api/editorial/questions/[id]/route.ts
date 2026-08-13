@@ -967,6 +967,8 @@ export async function PATCH(
         "UPDATE questions SET context_summary=?,category_id=?,category_name=?,updated_at=CURRENT_TIMESTAMP WHERE id=?",
       ).bind(contextSummary, category.id, category.name, id),
     );
+    statements.push(env.DB.prepare("INSERT INTO question_categories(question_id,category_id,is_primary,position,assigned_by) VALUES(?,?,1,0,'EDITORIAL') ON CONFLICT(question_id,category_id) DO UPDATE SET is_primary=1,position=0,assigned_by='EDITORIAL'").bind(id,category.id));
+    statements.push(env.DB.prepare("UPDATE question_categories SET is_primary=0 WHERE question_id=? AND category_id<>?").bind(id,category.id));
     statements.push(
       env.DB.prepare(
         "INSERT INTO question_content_sections (id,question_id,section_type,body,provenance,publication_state,answer_leak_state,position) VALUES (?,?, 'SUMMARY',?,'EDITORIAL','DRAFT','PENDING',0) ON CONFLICT(question_id,section_type) DO UPDATE SET body=excluded.body,provenance='EDITORIAL',publication_state='DRAFT',answer_leak_state='PENDING',updated_at=CURRENT_TIMESTAMP",
@@ -1214,6 +1216,8 @@ export async function PATCH(
         id,
       ),
     );
+    statements.push(env.DB.prepare("INSERT INTO question_categories(question_id,category_id,is_primary,position,assigned_by) VALUES(?,?,1,0,'EDITORIAL') ON CONFLICT(question_id,category_id) DO UPDATE SET is_primary=1,position=0,assigned_by='EDITORIAL'").bind(id,revisedCategory.id));
+    statements.push(env.DB.prepare("UPDATE question_categories SET is_primary=0 WHERE question_id=? AND category_id<>?").bind(id,revisedCategory.id));
     statements.push(
       env.DB.prepare(
         "DELETE FROM question_relationships WHERE source_question_id=? AND created_by='AI_ASSISTED'",
@@ -1332,6 +1336,7 @@ export async function PATCH(
     env.DB.prepare(
       "UPDATE questions SET publication_state='PUBLISHED',visibility='PUBLIC',submission_state=CASE WHEN submission_state IS NULL THEN NULL ELSE 'APPROVED' END,review_notes=NULL,reviewed_at=CURRENT_TIMESTAMP,verified_status=?,verification_state='VERIFIED',last_verified_at=CURRENT_TIMESTAMP,published_at=CURRENT_TIMESTAMP,updated_at=CURRENT_TIMESTAMP WHERE id=?",
     ).bind(body.verifiedStatus, id),
+    env.DB.prepare("INSERT INTO question_status_events(id,question_id,occurred_at,from_status,to_status,verifier_type,verifier_name,note) SELECT ?,q.id,CURRENT_TIMESTAMP,(SELECT e.to_status FROM question_status_events e WHERE e.question_id=q.id ORDER BY e.occurred_at DESC,e.created_at DESC LIMIT 1),?,'EDITORIAL','Tambaya Editorial','Status verified during publication' FROM questions q WHERE q.id=? AND COALESCE((SELECT e.to_status FROM question_status_events e WHERE e.question_id=q.id ORDER BY e.occurred_at DESC,e.created_at DESC LIMIT 1),'')<>?").bind(crypto.randomUUID(),body.verifiedStatus,id,body.verifiedStatus),
     env.DB.prepare("DELETE FROM question_search WHERE question_id=?").bind(id),
     env.DB.prepare(
       "INSERT INTO question_search (question_id,question_text,context_summary,category_name,tags) SELECT q.id,q.question_text,q.context_summary,COALESCE(c.name,q.category_name,''),COALESCE((SELECT group_concat(t.name,' ') FROM question_tags qt JOIN tags t ON t.id=qt.tag_id WHERE qt.question_id=q.id),'') FROM questions q LEFT JOIN categories c ON c.id=q.category_id WHERE q.id=?",

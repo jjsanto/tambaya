@@ -95,17 +95,30 @@ export type AnswerAttempt = {
   significance: string;
   unresolved: string;
 };
+export type QuestionCategory = { name: string; slug: string; primary: boolean };
+export type QuestionStatusEvent = {
+  occurredAt: string;
+  fromStatus: AnswerStatus | null;
+  toStatus: AnswerStatus;
+  evidenceUrl: string | null;
+  verifierType: "MIGRATION" | "EDITORIAL" | "INSTITUTION" | "SYSTEM";
+  verifierName: string | null;
+  note: string | null;
+};
 
 export type PublicQuestion = {
   id: string;
+  publicId?: string;
   slug: string;
   questionText: string;
   category: string;
   categorySlug: string;
+  categories?: QuestionCategory[];
   tags: string[];
   claimedStatus: AnswerStatus;
   verifiedStatus: AnswerStatus;
   verificationState: VerificationState;
+  statusHistory?: QuestionStatusEvent[];
   contextSummary: string;
   origins: string;
   evolution: string;

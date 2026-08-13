@@ -1,6 +1,6 @@
 import type { Metadata } from "next";
 import Link from "next/link";
-import { notFound } from "next/navigation";
+import { notFound, redirect } from "next/navigation";
 import { StatusBadge } from "@/components/status-badge";
 import { QuestionCard } from "@/components/question-card";
 import { StoryBlocks } from "@/components/story-blocks";
@@ -27,8 +27,10 @@ export default async function QuestionPage({
   params: Promise<{ slug: string }>;
 }) {
   const repository = await getQuestionRepository();
-  const question = await repository.findBySlug((await params).slug);
+  const requestedSlug = (await params).slug;
+  const question = await repository.findBySlug(requestedSlug);
   if (!question) notFound();
+  if (question.slug !== requestedSlug) redirect(`/questions/${question.slug}`);
   const usefulKeyTerms = question.keyTerms.filter((term) =>
     isUsefulKeyTermDescription(term.description),
   );
@@ -112,6 +114,7 @@ export default async function QuestionPage({
               <p className="publisher-credit">
                 Published by{" "}
                 <strong>{publisher?.username ?? "Tambaya Editorial"}</strong>
+                {question.publicId && <span> · {question.publicId}</span>}
               </p>
               <p>{question.contextSummary}</p>
               <div className="tag-row">

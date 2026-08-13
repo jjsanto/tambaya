@@ -35,13 +35,15 @@ export async function POST(request: Request) {
     if (error) return Response.json({ error }, { status: 400 });
   }
   const id = crypto.randomUUID();
+  const publicId = `TQ-${crypto.randomUUID().replaceAll("-", "").slice(0, 12).toUpperCase()}`;
   const slug = `${slugifyQuestion(input.questionText).slice(0, 90)}-${id.slice(0, 8)}`;
   await db
     .prepare(
-      "INSERT INTO questions (id,publisher_id,question_text,publisher_motivation,slug,publication_state,visibility,claimed_status,verification_state,category_id,category_name,context_summary,public_json,submission_state) VALUES (?,?,?,?,?,'DRAFT','PRIVATE',?,'PENDING',?,'',?,'{}',?)",
+      "INSERT INTO questions (id,public_id,publisher_id,question_text,publisher_motivation,slug,publication_state,visibility,claimed_status,verification_state,category_id,category_name,context_summary,public_json,submission_state) VALUES (?,?,?,?,?,?,'DRAFT','PRIVATE',?,'PENDING',?,'',?,'{}',?)",
     )
     .bind(
       id,
+      publicId,
       user.id,
       input.questionText,
       input.motivation,
@@ -52,6 +54,8 @@ export async function POST(request: Request) {
       action === "submit" ? "SUBMITTED" : "DRAFT",
     )
     .run();
+  await db.prepare("INSERT INTO question_slug_aliases(slug,question_id) VALUES (?,?)").bind(slug,id).run();
+  await db.prepare("INSERT INTO question_categories(question_id,category_id,is_primary,position,assigned_by) VALUES(?,?,1,0,'PUBLISHER')").bind(id,input.categoryId).run();
   try {
     await replaceSubmissionContent(
       db,

@@ -68,6 +68,7 @@ export interface QuestionRepository {
 
 export type QuestionRow = {
   id: string;
+  public_id: string;
   slug: string;
   question_text: string;
   category_name: string;

@@ -51,6 +51,16 @@ export default function PublicApiPage() {
       </section>
 
       <section>
+        <h2>Stable identity and citation</h2>
+        <p>
+          Every question has an opaque Tambaya ID such as <code>TQ-A1B2C3D4E5F6</code>.
+          The ID survives title and URL changes; historical slugs redirect to the
+          current page. Cite a record as <em>Tambaya, “Question title,” Tambaya ID,
+          current URL, accessed date</em>.
+        </p>
+      </section>
+
+      <section>
         <h2>Authentication and quotas</h2>
         <p>
           Anonymous clients can make 100 requests per day. A personal API key

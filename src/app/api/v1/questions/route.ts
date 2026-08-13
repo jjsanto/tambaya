@@ -19,7 +19,7 @@ export async function GET(request: Request) {
   const [questions, total] = await Promise.all([repository.list(filters), repository.count(filters)]);
   return apiJson(request, {
     apiVersion: API_VERSION,
-    data: questions.map(q => ({ id:q.id,slug:q.slug,title:q.questionText,contextSummary:q.contextSummary,category:{name:q.category,slug:q.categorySlug},tags:q.tags,status:{claimed:q.claimedStatus,verified:q.verifiedStatus,verificationState:q.verificationState},links:{self:`/api/v1/questions/${q.slug}`,relationships:`/api/v1/questions/${q.slug}/relationships`,web:`/questions/${q.slug}`} })),
+    data: questions.map(q => ({ id:q.publicId??q.id,slug:q.slug,title:q.questionText,contextSummary:q.contextSummary,category:{name:q.category,slug:q.categorySlug},tags:q.tags,status:{claimed:q.claimedStatus,verified:q.verifiedStatus,verificationState:q.verificationState},links:{self:`/api/v1/questions/${q.slug}`,relationships:`/api/v1/questions/${q.slug}/relationships`,web:`/questions/${q.slug}`} })),
     pagination: { page,pageSize,total,totalPages:Math.ceil(total/pageSize),hasNext:page*pageSize<total,hasPrevious:page>1 },
     filters: { status:status??null,category:filters.category??null,tag:filters.tag??null,sort },
   });

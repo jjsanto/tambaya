@@ -65,6 +65,8 @@ type TermRow = { term: string; description: string };
 type BranchRow = { question_text: string; relationship_type: RelationshipType };
 type SummaryRow = { question_id: string; body: string };
 type QuestionTagRow = { question_id: string; name: string };
+type CategoryRow = { name: string; slug: string; is_primary: number };
+type StatusEventRow = { occurred_at:string; from_status:AnswerStatus|null; to_status:AnswerStatus; evidence_url:string|null; verifier_type:"MIGRATION"|"EDITORIAL"|"INSTITUTION"|"SYSTEM"; verifier_name:string|null; note:string|null };
 
 export class D1QuestionRepository implements QuestionRepository {
   constructor(private readonly db: D1DatabaseLike) {}
@@ -117,6 +119,7 @@ export class D1QuestionRepository implements QuestionRepository {
     };
     return rows.map((row) => ({
       id: row.id,
+      publicId: row.public_id,
       slug: row.slug,
       questionText: row.question_text,
       category: row.category_name,
@@ -162,6 +165,8 @@ export class D1QuestionRepository implements QuestionRepository {
       termsResult,
       branchesResult,
       answerAttemptsResult,
+      categoriesResult,
+      statusEventsResult,
     ] = await Promise.all([
       this.db
         .prepare(
@@ -229,6 +234,8 @@ export class D1QuestionRepository implements QuestionRepository {
         )
         .bind(row.id)
         .all<AnswerAttemptRow>(),
+      this.db.prepare("SELECT c.name,c.slug,qc.is_primary FROM question_categories qc JOIN categories c ON c.id=qc.category_id WHERE qc.question_id=? ORDER BY qc.is_primary DESC,qc.position,c.name").bind(row.id).all<CategoryRow>(),
+      this.db.prepare("SELECT occurred_at,from_status,to_status,evidence_url,verifier_type,verifier_name,note FROM question_status_events WHERE question_id=? ORDER BY occurred_at DESC,created_at DESC").bind(row.id).all<StatusEventRow>(),
     ]);
     const sections = new Map(
       (sectionsResult.results ?? []).map((section) => [
@@ -254,14 +261,17 @@ export class D1QuestionRepository implements QuestionRepository {
     };
     return {
       id: row.id,
+      publicId: row.public_id,
       slug: row.slug,
       questionText: row.question_text,
       category: row.category_name,
       categorySlug: row.category_slug,
+      categories: (categoriesResult.results ?? []).map(item=>({name:item.name,slug:item.slug,primary:Boolean(item.is_primary)})),
       tags: (tagsResult.results ?? []).map((tag) => tag.name),
       claimedStatus: row.claimed_status,
       verifiedStatus: row.verified_status,
       verificationState: row.verification_state,
+      statusHistory: (statusEventsResult.results ?? []).map(item=>({occurredAt:item.occurred_at,fromStatus:item.from_status,toStatus:item.to_status,evidenceUrl:item.evidence_url,verifierType:item.verifier_type,verifierName:item.verifier_name,note:item.note})),
       featured: Boolean(row.featured),
       contextSummary: body("SUMMARY"),
       origins: body("ORIGINS"),
@@ -343,7 +353,7 @@ export class D1QuestionRepository implements QuestionRepository {
         : sort === "most-connected"
           ? "(SELECT COUNT(*) FROM question_relationships r WHERE r.verified=1 AND (r.source_question_id=q.id OR r.target_question_id=q.id)) DESC,q.published_at DESC,q.id ASC"
           : "q.published_at DESC,q.created_at DESC,q.id ASC";
-    const sql = `SELECT q.id,q.slug,q.question_text,COALESCE(c.name,q.category_name) category_name,COALESCE(c.slug,'uncategorised') category_slug,q.claimed_status,q.verified_status,q.verification_state,COALESCE(q.featured,0) featured FROM questions q LEFT JOIN categories c ON c.id=q.category_id WHERE q.publication_state='PUBLISHED' ${where} ORDER BY ${order}${limit ? ` LIMIT ${limit} OFFSET ${offset}` : ""}`;
+    const sql = `SELECT q.id,q.public_id,q.slug,q.question_text,COALESCE(c.name,q.category_name) category_name,COALESCE(c.slug,'uncategorised') category_slug,q.claimed_status,q.verified_status,q.verification_state,COALESCE(q.featured,0) featured FROM questions q LEFT JOIN categories c ON c.id=q.category_id WHERE q.publication_state='PUBLISHED' ${where} ORDER BY ${order}${limit ? ` LIMIT ${limit} OFFSET ${offset}` : ""}`;
     return (
       (
         await this.db
@@ -361,7 +371,7 @@ export class D1QuestionRepository implements QuestionRepository {
       values.push(filters.status);
     }
     if (filters.category) {
-      clauses.push("c.slug=?");
+      clauses.push("EXISTS (SELECT 1 FROM question_categories qcf JOIN categories cf ON cf.id=qcf.category_id WHERE qcf.question_id=q.id AND cf.slug=?)");
       values.push(filters.category);
     }
     if (filters.tag) {
@@ -393,7 +403,7 @@ export class D1QuestionRepository implements QuestionRepository {
       values.push(filters.status);
     }
     if (filters.category) {
-      clauses.push("c.slug=?");
+      clauses.push("EXISTS (SELECT 1 FROM question_categories qcf JOIN categories cf ON cf.id=qcf.category_id WHERE qcf.question_id=q.id AND cf.slug=?)");
       values.push(filters.category);
     }
     if (filters.tag) {
@@ -415,7 +425,7 @@ export class D1QuestionRepository implements QuestionRepository {
     return this.summarize(rows);
   }
   async findBySlug(slug: string) {
-    const rows = await this.rows("AND q.slug=?", [slug], 1);
+    const rows = await this.rows("AND (q.slug=? OR EXISTS (SELECT 1 FROM question_slug_aliases a WHERE a.question_id=q.id AND a.slug=?))", [slug,slug], 1);
     return rows[0] ? this.hydrate(rows[0]) : null;
   }
   async search(query: string) {
@@ -537,13 +547,15 @@ export class D1QuestionRepository implements QuestionRepository {
     contextSummary: string;
   }) {
     const id = crypto.randomUUID();
+    const publicId = `TQ-${crypto.randomUUID().replaceAll("-", "").slice(0, 12).toUpperCase()}`;
     const slug = slugifyQuestion(input.questionText);
     await this.db
       .prepare(
-        "INSERT INTO questions (id,question_text,slug,publication_state,claimed_status,verification_state,category_name,context_summary,public_json) VALUES (?,?,?,'DRAFT',?,'PENDING',?,?,'{}')",
+        "INSERT INTO questions (id,public_id,question_text,slug,publication_state,claimed_status,verification_state,category_name,context_summary,public_json) VALUES (?,?,?,?, 'DRAFT',?,'PENDING',?,?,'{}')",
       )
       .bind(
         id,
+        publicId,
         input.questionText,
         slug,
         input.claimedStatus,
@@ -551,6 +563,7 @@ export class D1QuestionRepository implements QuestionRepository {
         input.contextSummary,
       )
       .run();
+    await this.db.prepare("INSERT INTO question_slug_aliases(slug,question_id) VALUES (?,?)").bind(slug,id).run();
     await this.db
       .prepare(
         "INSERT INTO question_content_sections (id,question_id,section_type,body,provenance,publication_state,answer_leak_state,position) VALUES (?,?, 'SUMMARY',?,'PUBLISHER','DRAFT','PENDING',0)",
