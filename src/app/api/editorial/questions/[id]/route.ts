@@ -123,6 +123,7 @@ type CandidateQuestion = {
   category: string;
   categoryId: string;
 };
+type EditableCitation={targetType:"STORY_SECTION"|"TIMELINE_EVENT";targetId:string;sourceUrl:string;note:string};
 
 function publicationBlocked(
   blockers: ReturnType<typeof evaluateEditorialQuality>["blockers"],
@@ -261,6 +262,8 @@ export async function GET(
     answerAttemptsResult,
     phrasingsResult,
     assignedCategoriesResult,
+    citationsResult,
+    sourceOptionsResult,
   ] = await Promise.all([
     env.DB.prepare(
       "SELECT id,section_key,kicker,title,position FROM question_story_sections WHERE question_id=? ORDER BY position",
@@ -319,6 +322,8 @@ export async function GET(
       .all<AnswerAttemptRow>(),
     env.DB.prepare("SELECT text,period,language,COALESCE(source_url,'') sourceUrl,COALESCE(source_title,'') sourceTitle,COALESCE(note,'') note FROM question_phrasings WHERE question_id=? AND verified=1 ORDER BY position").bind(id).all<EditablePhrasing>(),
     env.DB.prepare("SELECT category_id id,is_primary FROM question_categories WHERE question_id=? ORDER BY is_primary DESC,position").bind(id).all<{id:string;is_primary:number}>(),
+    env.DB.prepare("SELECT sc.target_type targetType,sc.target_id targetId,s.canonical_url sourceUrl,sc.note FROM source_citations sc JOIN sources s ON s.id=sc.source_id WHERE sc.question_id=? AND sc.target_type IN ('STORY_SECTION','TIMELINE_EVENT') ORDER BY sc.position").bind(id).all<EditableCitation>(),
+    env.DB.prepare("SELECT title,COALESCE(publisher,'') publisher,source_url sourceUrl FROM question_references WHERE question_id=? AND source_url LIKE 'https://%' ORDER BY position").bind(id).all<{title:string;publisher:string;sourceUrl:string}>(),
   ]);
   const paragraphs = paragraphsResult.results ?? [];
   const blocks = blocksResult.results ?? [];
@@ -350,6 +355,7 @@ export async function GET(
         answerAttempts?: EditableAnswerAttempt[];
         phrasings?: EditablePhrasing[];
         categoryIds?: string[];
+        citations?:EditableCitation[];
       })
     : null;
   const workingSections = workingCopy?.sections?.map((section) => ({
@@ -405,6 +411,8 @@ export async function GET(
             rationale: relationship.rationale || "Previously reviewed editorial connection.",
           }),
         ),
+        citations:workingCopy?.citations??citationsResult.results??[],
+        sourceOptions:sourceOptionsResult.results??[],
         hasPendingRevision: !!revisionDraft,
         revisionDraftUpdatedAt: revisionDraft?.updated_at ?? null,
         revisions: revisionsResult.results ?? [],
@@ -620,6 +628,11 @@ export async function PATCH(
       ? body.relationships.slice(0, 8)
       : [];
     const relationships: ApprovedRelationship[] = [];
+    const citations:EditableCitation[]=[];
+    if(!Array.isArray(body.citations)||body.citations.length>80)return Response.json({error:"Provide up to 80 field-level citations."},{status:400});
+    const validSectionKeys=new Set((Array.isArray(body.sections)?body.sections:[]).map((item)=>String((item as Record<string,unknown>).key??"")));
+    const validTimelineIds=new Set((Array.isArray(body.timeline)?body.timeline:[]).map((item,index)=>`${index}:${String((item as Record<string,unknown>).displayDate??"")}`));
+    for(const raw of body.citations){const item=raw as Record<string,unknown>;const targetType=String(item.targetType);const targetId=String(item.targetId??"");const sourceUrl=String(item.sourceUrl??"").trim();const note=String(item.note??"").trim().slice(0,500);if(!["STORY_SECTION","TIMELINE_EVENT"].includes(targetType)||!/^https:\/\//i.test(sourceUrl)||(targetType==="STORY_SECTION"?!validSectionKeys.has(targetId):!validTimelineIds.has(targetId)))return Response.json({error:"One field-level citation is invalid or points outside this working copy."},{status:400});const source=await env.DB.prepare("SELECT 1 ok FROM question_references WHERE question_id=? AND source_url=?").bind(id,sourceUrl).first<{ok:number}>();if(!source)return Response.json({error:"Citations must use a verified source already attached to this question."},{status:400});citations.push({targetType:targetType as EditableCitation["targetType"],targetId,sourceUrl,note});}
     if (!Array.isArray(body.keyTerms) || body.keyTerms.length > 8)
       return Response.json(
         { error: "Provide up to eight question-specific key terms." },
@@ -844,6 +857,7 @@ export async function PATCH(
       keyTerms,
       people,
       relationships,
+      citations,
     });
     if (isPublishedRevision) {
       const revisionDraft = await env.DB.prepare(
@@ -1032,6 +1046,8 @@ export async function PATCH(
         ),
       ),
     );
+    statements.push(env.DB.prepare("DELETE FROM source_citations WHERE question_id=? AND target_type IN ('STORY_SECTION','TIMELINE_EVENT')").bind(id));
+    citations.forEach((citation,position)=>statements.push(env.DB.prepare("INSERT INTO source_citations(id,question_id,source_id,target_type,target_id,purpose,note,position,verified) SELECT ?,?,s.id,?,?, 'BACKGROUND',?,?,1 FROM sources s WHERE s.canonical_url=?").bind(crypto.randomUUID(),id,citation.targetType,citation.targetId,citation.note,position,citation.sourceUrl)));
     await env.DB.batch(statements);
     return Response.json({
       id,
@@ -1066,6 +1082,7 @@ export async function PATCH(
       keyTerms?: EditableKeyTerm[];
       people?: EditablePerson[];
       relationships?: ApprovedRelationship[];
+      citations?:EditableCitation[];
     };
     const referenceCount = await env.DB.prepare(
       "SELECT COUNT(*) count FROM question_references WHERE question_id=? AND source_url LIKE 'https://%'",
@@ -1233,6 +1250,8 @@ export async function PATCH(
         );
       });
     });
+    statements.push(env.DB.prepare("DELETE FROM source_citations WHERE question_id=? AND target_type IN ('STORY_SECTION','TIMELINE_EVENT')").bind(id));
+    (revised.citations??[]).forEach((citation,position)=>statements.push(env.DB.prepare("INSERT INTO source_citations(id,question_id,source_id,target_type,target_id,purpose,note,position,verified) SELECT ?,?,s.id,?,?, 'BACKGROUND',?,?,1 FROM sources s WHERE s.canonical_url=?").bind(crypto.randomUUID(),id,citation.targetType,citation.targetId,citation.note,position,citation.sourceUrl)));
     statements.push(
       env.DB.prepare(
         "INSERT INTO editorial_revisions (id,question_id,action,snapshot_json) VALUES (?,?,'PUBLISHED',?)",

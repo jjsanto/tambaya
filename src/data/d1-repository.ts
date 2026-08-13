@@ -142,6 +142,7 @@ export class D1QuestionRepository implements QuestionRepository {
       whereItAppears: "",
       timeline: [],
       references: [],
+      citations: [],
       storySections: [],
       people: [],
       keyTerms: [],
@@ -173,6 +174,7 @@ export class D1QuestionRepository implements QuestionRepository {
       categoriesResult,
       statusEventsResult,
       phrasingsResult,
+      citationsResult,
     ] = await Promise.all([
       this.db
         .prepare(
@@ -243,6 +245,7 @@ export class D1QuestionRepository implements QuestionRepository {
       this.db.prepare("SELECT c.name,c.slug,qc.is_primary FROM question_categories qc JOIN categories c ON c.id=qc.category_id WHERE qc.question_id=? ORDER BY qc.is_primary DESC,qc.position,c.name").bind(row.id).all<CategoryRow>(),
       this.db.prepare("SELECT occurred_at,from_status,to_status,evidence_url,verifier_type,verifier_name,note FROM question_status_events WHERE question_id=? ORDER BY occurred_at DESC,created_at DESC").bind(row.id).all<StatusEventRow>(),
       this.db.prepare("SELECT text,period,language,source_url,source_title,note FROM question_phrasings WHERE question_id=? AND verified=1 ORDER BY position,period").bind(row.id).all<PhrasingRow>(),
+      this.db.prepare("SELECT sc.target_type targetType,sc.target_id targetId,s.slug sourceSlug,s.title,s.publisher,s.canonical_url url,sc.note FROM source_citations sc JOIN sources s ON s.id=sc.source_id WHERE sc.question_id=? AND sc.verified=1 AND sc.target_type IN ('STORY_SECTION','TIMELINE_EVENT') ORDER BY sc.position").bind(row.id).all<{targetType:"STORY_SECTION"|"TIMELINE_EVENT";targetId:string;sourceSlug:string;title:string;publisher:string;url:string;note:string}>(),
     ]);
     const sections = new Map(
       (sectionsResult.results ?? []).map((section) => [
@@ -299,6 +302,7 @@ export class D1QuestionRepository implements QuestionRepository {
         url: ref.source_url,
         purpose: ref.purpose,
       })),
+      citations: citationsResult.results ?? [],
       answerAttempts: (answerAttemptsResult.results ?? []).map((attempt) => ({
         title: attempt.title,
         author: attempt.author,

@@ -56,6 +56,7 @@ type AnswerAttemptEditorItem = EnrichmentProposal["answerAttempts"][number] & {
   outcomeNote?: string;
 };
 type PhrasingEditorItem={text:string;period:string;language:string;sourceUrl:string;sourceTitle:string;note:string};
+type CitationEditorItem={targetType:"STORY_SECTION"|"TIMELINE_EVENT";targetId:string;sourceUrl:string;note:string};
 type EditorialDetail = EditorialQuestion & {
   category_id: string;
   category_ids?:string[];
@@ -80,6 +81,8 @@ type EditorialDetail = EditorialQuestion & {
     category: string;
     categoryId: string;
   }[];
+  citations?:CitationEditorItem[];
+  sourceOptions?:{title:string;publisher:string;sourceUrl:string}[];
 };
 
 const labels: Record<string, string> = {
@@ -382,6 +385,7 @@ export function EditorialWorkspace({
   const [editorCategoryId, setEditorCategoryId] = useState("");
   const [editorCategoryIds,setEditorCategoryIds]=useState<string[]>([]);
   const [editorPhrasings,setEditorPhrasings]=useState<PhrasingEditorItem[]>([]);
+  const [editorCitations,setEditorCitations]=useState<CitationEditorItem[]>([]);
   const [previewStory, setPreviewStory] = useState(false);
   const [proposal, setProposal] = useState<EnrichmentProposal | null>(null);
   const [approvedRelationships, setApprovedRelationships] = useState<
@@ -697,7 +701,8 @@ export function EditorialWorkspace({
       setEditorSections(detail.sections.length ? detail.sections : defaults);
       setEditorTimeline(detail.timeline ?? []);
       setEditorKeyTerms(detail.keyTerms ?? []);
-      setEditorPeople(detail.people ?? []);
+    setEditorPeople(detail.people ?? []);
+    setEditorCitations(detail.citations??[]);
       setEditorAnswerAttempts(
         (detail.answerAttempts ?? []).map((attempt) => ({
           ...attempt,
@@ -1135,6 +1140,7 @@ export function EditorialWorkspace({
               `${relationship.targetId}:${relationship.type}`,
             ),
           ),
+          citations:editorCitations,
         }),
       });
       setMessage("Story sections saved as a new private revision.");
@@ -1180,6 +1186,7 @@ export function EditorialWorkspace({
               `${relationship.targetId}:${relationship.type}`,
             ),
           ),
+          citations:editorCitations,
         }),
       });
       await api(`/api/editorial/questions/${editing.id}`, {
@@ -2568,6 +2575,13 @@ export function EditorialWorkspace({
                             }
                           />
                         </label>
+                        <label>
+                          Supporting source
+                          <select value={editorCitations.find(item=>item.targetType==="TIMELINE_EVENT"&&item.targetId===`${index}:${event.displayDate}`)?.sourceUrl??""} onChange={(change)=>setEditorCitations(current=>[...current.filter(item=>!(item.targetType==="TIMELINE_EVENT"&&item.targetId.startsWith(`${index}:`))),...(change.target.value?[{targetType:"TIMELINE_EVENT" as const,targetId:`${index}:${event.displayDate}`,sourceUrl:change.target.value,note:"Supports this dated change in how the question was framed."}]:[])])}>
+                            <option value="">No field-level citation</option>
+                            {(editing.sourceOptions??[]).map(source=><option key={source.sourceUrl} value={source.sourceUrl}>{source.title} · {source.publisher}</option>)}
+                          </select>
+                        </label>
                         <button
                           type="button"
                           className="text-link"
@@ -2769,6 +2783,13 @@ export function EditorialWorkspace({
                           }
                           placeholder="At least 80 characters of historical or contextual material that does not resolve the question."
                         />
+                      </label>
+                      <label>
+                        Supporting source
+                        <select value={editorCitations.find(item=>item.targetType==="STORY_SECTION"&&item.targetId===section.key)?.sourceUrl??""} onChange={(event)=>setEditorCitations(current=>[...current.filter(item=>!(item.targetType==="STORY_SECTION"&&item.targetId===section.key)),...(event.target.value?[{targetType:"STORY_SECTION" as const,targetId:section.key,sourceUrl:event.target.value,note:"Supports the historical and contextual claims in this section."}]:[])])}>
+                          <option value="">No field-level citation</option>
+                          {(editing.sourceOptions??[]).map(source=><option key={source.sourceUrl} value={source.sourceUrl}>{source.title} · {source.publisher}</option>)}
+                        </select>
                       </label>
                       <div className="block-editor-list">
                         {(section.blocks ?? []).map((block, blockIndex) =>

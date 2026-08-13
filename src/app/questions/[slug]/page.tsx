@@ -275,6 +275,7 @@ export default async function QuestionPage({
                     <p key={paragraphIndex}>{paragraph}</p>
                   ))
                 )}
+                {(question.citations??[]).filter(citation=>citation.targetType==="STORY_SECTION"&&citation.targetId===section.id).length>0&&<div className="field-citations"><strong>Sources for this section</strong>{(question.citations??[]).filter(citation=>citation.targetType==="STORY_SECTION"&&citation.targetId===section.id).map(citation=><Link key={`${citation.sourceSlug}-${citation.targetId}`} href={`/sources/${citation.sourceSlug}`}>{citation.title}{citation.note?` — ${citation.note}`:""}</Link>)}</div>}
                 <small className="review-line">
                   ✓ Editorially reviewed · answer-leak check{" "}
                   {section.review.answerLeakState.toLowerCase()}
@@ -356,6 +357,7 @@ export default async function QuestionPage({
                 <span>{event.year}</span>
                 <h3>{event.title}</h3>
                 <p>{event.description}</p>
+                {(question.citations??[]).filter(citation=>citation.targetType==="TIMELINE_EVENT"&&citation.targetId===`${i}:${event.year}`).map(citation=><Link className="timeline-citation" key={`${citation.sourceSlug}-${i}`} href={`/sources/${citation.sourceSlug}`}>Source: {citation.title} →</Link>)}
               </article>
             ))}
           </div>

@@ -42,6 +42,7 @@ export type QuestionReference = {
     | "TIMELINE"
     | "BACKGROUND";
 };
+export type QuestionCitation = { targetType:"STORY_SECTION"|"TIMELINE_EVENT"; targetId:string; sourceSlug:string; title:string; publisher:string; url:string; note:string };
 export type EditorialReview = {
   provenance: "EDITORIAL" | "PUBLISHER" | "AI_ASSISTED";
   reviewedAt: string;
@@ -133,6 +134,7 @@ export type PublicQuestion = {
   whereItAppears: string;
   timeline: TimelineEvent[];
   references: QuestionReference[];
+  citations?: QuestionCitation[];
   answerAttempts?: AnswerAttempt[];
   storySections: StorySection[];
   people: PersonAssociation[];
