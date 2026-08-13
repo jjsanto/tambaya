@@ -47,6 +47,18 @@
 .external-proposal-review > article small { color: var(--gold); font-size: 9px; font-weight: 900; text-transform: uppercase; }
 .external-proposal-review > .button { justify-self: start; }
 @media(max-width:700px){.agent-provenance-fields,.external-proposal-review > article,.external-proposal-review > article > div{grid-template-columns:1fr}.external-proposal-review > header{flex-direction:column}}
+.agent-token-manager { display: grid; gap: 10px; padding: 15px; border: 1px solid var(--navy); background: #f7f8fb; }
+.agent-token-manager > header { display: flex; justify-content: space-between; align-items: center; gap: 15px; }
+.agent-token-manager > header div { display: grid; }
+.agent-token-manager small { color: var(--muted); }
+.one-time-token { display: grid; gap: 7px; padding: 12px; border-left: 3px solid var(--gold); background: white; }
+.one-time-token code,.agent-endpoint { overflow-wrap: anywhere; padding: 8px; background: #eef0f7; font-size: 11px; }
+.one-time-token button { justify-self: start; border: 0; background: none; cursor: pointer; }
+.agent-token-list { display: grid; gap: 6px; }
+.agent-token-list article { display: flex; justify-content: space-between; align-items: center; gap: 10px; padding: 9px; background: white; border: 1px solid var(--line); }
+.agent-token-list article span { display: grid; }
+.agent-token-list button { border: 0; background: none; cursor: pointer; }
+@media(max-width:620px){.agent-token-manager > header,.agent-token-list article{align-items:stretch;flex-direction:column}}
 .publication-checklist { display: grid; gap: 8px; padding: 18px; border: 1px solid currentColor; }
 .publication-checklist h4, .publication-checklist p { margin: 0; }
 .publication-checklist h4 { color: var(--navy); font: 500 20px var(--font-serif); }

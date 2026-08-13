@@ -394,6 +394,10 @@ export function EditorialWorkspace({
   const [acceptedProposalParts, setAcceptedProposalParts] = useState<Set<string>>(
     new Set(),
   );
+  const [agentTokens, setAgentTokens] = useState<{
+    id: string; label: string; expiresAt: string; revokedAt: string | null; lastUsedAt: string | null;
+  }[]>([]);
+  const [newAgentToken, setNewAgentToken] = useState("");
   const [editorVerifiedStatus, setEditorVerifiedStatus] = useState("OPEN");
   const [scope, setScope] = useState<"review" | "archive">("review");
   const [workspaceMode, setWorkspaceMode] = useState<"review" | "create">(
@@ -476,6 +480,8 @@ export function EditorialWorkspace({
         keyTerms?: KeyTermEditorItem[];
         reviewCount?: number;
         externalProposal?: unknown;
+        tokens?: unknown[];
+        token?: string;
       };
       if (!response.ok)
         throw new Error(result.error ?? "The editorial request failed.");
@@ -689,6 +695,11 @@ export function EditorialWorkspace({
         setProposalAgentName(persisted.agentName ?? "");
         setProposalModelName(persisted.modelName ?? "");
       }
+      const tokenResult = await api(
+        `/api/editorial/questions/${question.id}/agent-tokens`,
+      );
+      setAgentTokens((tokenResult.tokens as typeof agentTokens | undefined) ?? []);
+      setNewAgentToken("");
       setMessage("Story editor opened.");
     } catch (error) {
       setMessage(
@@ -955,6 +966,36 @@ export function EditorialWorkspace({
       setMessage(
         error instanceof Error ? error.message : "Unable to discard proposal.",
       );
+    }
+  }
+
+  async function createExternalAgentToken() {
+    if (!editing) return;
+    const label = window.prompt("Name this external agent token:", proposalAgentName || "External agent");
+    if (!label) return;
+    try {
+      const result = await api(`/api/editorial/questions/${editing.id}/agent-tokens`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ label, expiresInDays: 7 }),
+      }) as { token?: string };
+      setNewAgentToken(result.token ?? "");
+      const refreshed = await api(`/api/editorial/questions/${editing.id}/agent-tokens`);
+      setAgentTokens((refreshed.tokens as typeof agentTokens | undefined) ?? []);
+      setMessage("Agent token created. Copy it now; Tambaya will not display it again.");
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "Unable to create agent token.");
+    }
+  }
+
+  async function revokeExternalAgentToken(tokenId: string) {
+    if (!editing || !window.confirm("Revoke this agent token immediately?")) return;
+    try {
+      await api(`/api/editorial/questions/${editing.id}/agent-tokens?tokenId=${encodeURIComponent(tokenId)}`, { method: "DELETE" });
+      setAgentTokens((current) => current.map((item) => item.id === tokenId ? { ...item, revokedAt: new Date().toISOString() } : item));
+      setMessage("Agent token revoked.");
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "Unable to revoke agent token.");
     }
   }
 
@@ -1561,6 +1602,72 @@ export function EditorialWorkspace({
                         targets, plus the exact JSON response contract. An
                         import changes only this unsaved editor.
                       </p>
+                      <section className="agent-token-manager">
+                        <header>
+                          <div>
+                            <strong>Scoped agent API</strong>
+                            <small>
+                              Tokens can read this question’s brief and stage a
+                              proposal. They cannot edit or publish.
+                            </small>
+                          </div>
+                          <button
+                            type="button"
+                            className="button ghost small"
+                            onClick={() => void createExternalAgentToken()}
+                          >
+                            Create 7-day token
+                          </button>
+                        </header>
+                        {newAgentToken && (
+                          <div className="one-time-token">
+                            <strong>Copy this token now</strong>
+                            <code>{newAgentToken}</code>
+                            <button
+                              type="button"
+                              className="text-link"
+                              onClick={() =>
+                                void navigator.clipboard.writeText(newAgentToken)
+                              }
+                            >
+                              Copy token
+                            </button>
+                          </div>
+                        )}
+                        <code className="agent-endpoint">
+                          {`GET /api/agent/questions/${editing.id}`}
+                        </code>
+                        {agentTokens.length > 0 && (
+                          <div className="agent-token-list">
+                            {agentTokens.map((item) => (
+                              <article key={item.id}>
+                                <span>
+                                  <strong>{item.label}</strong>
+                                  <small>
+                                    Expires {item.expiresAt}
+                                    {item.lastUsedAt
+                                      ? ` · last used ${item.lastUsedAt}`
+                                      : " · never used"}
+                                  </small>
+                                </span>
+                                {item.revokedAt ? (
+                                  <small>Revoked</small>
+                                ) : (
+                                  <button
+                                    type="button"
+                                    className="text-link"
+                                    onClick={() =>
+                                      void revokeExternalAgentToken(item.id)
+                                    }
+                                  >
+                                    Revoke
+                                  </button>
+                                )}
+                              </article>
+                            ))}
+                          </div>
+                        )}
+                      </section>
                       <div className="agent-provenance-fields">
                         <label>
                           External agent or provider
