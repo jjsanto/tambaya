@@ -29,6 +29,7 @@ type SectionRow = {
 };
 type TimelineRow = { display_date: string; title: string; description: string };
 type ReferenceRow = {
+  slug: string;
   title: string;
   publisher: string;
   source_url: string;
@@ -187,7 +188,7 @@ export class D1QuestionRepository implements QuestionRepository {
         .all<TimelineRow>(),
       this.db
         .prepare(
-          "SELECT title, COALESCE(publisher,'') publisher, source_url, purpose FROM question_references WHERE question_id = ? ORDER BY position",
+          "SELECT COALESCE(s.slug,'') slug,qr.title,COALESCE(qr.publisher,'') publisher,qr.source_url,qr.purpose FROM question_references qr LEFT JOIN sources s ON s.canonical_url=trim(qr.source_url) WHERE qr.question_id = ? ORDER BY qr.position",
         )
         .bind(row.id)
         .all<ReferenceRow>(),
@@ -217,13 +218,13 @@ export class D1QuestionRepository implements QuestionRepository {
         .all<BlockRow>(),
       this.db
         .prepare(
-          "SELECT name,period,association FROM person_associations WHERE question_id=? ORDER BY position",
+          "SELECT COALESCE(p.slug,'') slug,pa.name,pa.period,pa.association FROM person_associations pa LEFT JOIN people p ON p.normalized_name=lower(trim(pa.name)) WHERE pa.question_id=? ORDER BY pa.position",
         )
         .bind(row.id)
         .all<PersonRow>(),
       this.db
         .prepare(
-          "SELECT term,description FROM question_key_terms WHERE question_id=? ORDER BY position",
+          "SELECT COALESCE(c.slug,'') slug,qt.term,qt.description FROM question_key_terms qt LEFT JOIN concepts c ON c.normalized_name=lower(trim(qt.term)) WHERE qt.question_id=? ORDER BY qt.position",
         )
         .bind(row.id)
         .all<TermRow>(),
@@ -292,6 +293,7 @@ export class D1QuestionRepository implements QuestionRepository {
         description: event.description,
       })),
       references: (refsResult.results ?? []).map((ref) => ({
+        slug: ref.slug,
         title: ref.title,
         publisher: ref.publisher,
         url: ref.source_url,

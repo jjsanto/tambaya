@@ -307,7 +307,7 @@ export default async function QuestionPage({
               <div className="term-list">
                 {usefulKeyTerms.map((term) => (
                   <article key={term.term}>
-                    <h3>{term.term}</h3>
+                    <h3>{term.slug ? <Link href={`/concepts/${term.slug}`}>{term.term}</Link> : term.term}</h3>
                     <p>{term.description}</p>
                   </article>
                 ))}
@@ -320,7 +320,7 @@ export default async function QuestionPage({
                 {question.people.map((person) => (
                   <article key={person.name}>
                     <div>
-                      <h3>{person.name}</h3>
+                      <h3>{person.slug ? <Link href={`/people/${person.slug}`}>{person.name}</Link> : person.name}</h3>
                       <small>{person.period}</small>
                     </div>
                     <p>{person.association}</p>
@@ -447,7 +447,7 @@ export default async function QuestionPage({
         <span className="eyebrow">References</span>
         <h2>Sources for the question’s context</h2>
         {question.references.map((ref, i) => (
-          <a href={ref.url} target="_blank" rel="noreferrer" key={i}>
+          <Link href={ref.slug ? `/sources/${ref.slug}` : ref.url} target={ref.slug ? undefined : "_blank"} rel={ref.slug ? undefined : "noreferrer"} key={i}>
             <span>{String(i + 1).padStart(2, "0")}</span>
             <div>
               <strong>{ref.title}</strong>
@@ -457,7 +457,7 @@ export default async function QuestionPage({
               </small>
             </div>
             <b>↗</b>
-          </a>
+          </Link>
         ))}
       </section>
     </article>

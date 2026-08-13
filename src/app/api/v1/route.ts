@@ -12,6 +12,9 @@ export async function GET(request: Request) {
       questions: "/api/v1/questions",
       categories: "/api/v1/categories",
       tags: "/api/v1/tags",
+      people: "/api/v1/people/{slug}",
+      concepts: "/api/v1/concepts/{slug}",
+      sources: "/api/v1/sources/{slug}",
     },
   });
 }

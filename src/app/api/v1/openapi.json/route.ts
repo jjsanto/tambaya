@@ -9,6 +9,9 @@ export async function GET(request:Request){
    "/questions/{slug}/relationships":{get:{summary:"List approved relationships",parameters:[{$ref:"#/components/parameters/Slug"}],responses:{"200":{description:"Incoming and outgoing question relationships"},"404":{$ref:"#/components/responses/Error"}}}},
    "/categories":{get:{summary:"List categories",responses:{"200":{description:"Categories with published-question counts"}}}},
    "/tags":{get:{summary:"List tags",responses:{"200":{description:"Tags with published-question counts"}}}},
+   "/people/{slug}":{get:{summary:"Get a shared person and connected questions",parameters:[{$ref:"#/components/parameters/Slug"}],responses:{"200":{description:"Person entity"},"404":{$ref:"#/components/responses/Error"}}}},
+   "/concepts/{slug}":{get:{summary:"Get a shared concept and contextual meanings",parameters:[{$ref:"#/components/parameters/Slug"}],responses:{"200":{description:"Concept entity"},"404":{$ref:"#/components/responses/Error"}}}},
+   "/sources/{slug}":{get:{summary:"Get a shared source and its citations",parameters:[{$ref:"#/components/parameters/Slug"}],responses:{"200":{description:"Source entity"},"404":{$ref:"#/components/responses/Error"}}}},
   },
   components:{parameters:{Slug:{name:"slug",in:"path",required:true,schema:{type:"string"}}},schemas:{AnswerStatus:{type:"string",enum:["OPEN","PARTIALLY_ANSWERED","ANSWERED"]},Error:{type:"object",properties:{apiVersion:{type:"string"},error:{type:"object",properties:{code:{type:"string"},message:{type:"string"},status:{type:"integer"}},required:["code","message","status"]}},required:["apiVersion","error"]}},responses:{Error:{description:"Standard API error",content:{"application/json":{schema:{$ref:"#/components/schemas/Error"}}}}}},
  });

@@ -31,6 +31,7 @@ export type TimelineEvent = {
   description: string;
 };
 export type QuestionReference = {
+  slug?: string;
   title: string;
   publisher: string;
   url: string;
@@ -75,11 +76,12 @@ export type StorySection = {
   review: EditorialReview;
 };
 export type PersonAssociation = {
+  slug?: string;
   name: string;
   period: string;
   association: string;
 };
-export type KeyTerm = { term: string; description: string };
+export type KeyTerm = { slug?: string; term: string; description: string };
 export type QuestionBranch = {
   question: string;
   relationship: RelationshipType;
