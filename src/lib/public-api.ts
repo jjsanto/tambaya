@@ -3,6 +3,7 @@ export const publicApiHeaders = {
   "Cache-Control": "public, max-age=60, s-maxage=300, stale-while-revalidate=600",
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Expose-Headers": "ETag",
+  "Vary": "Authorization",
   "X-Content-Type-Options": "nosniff",
 };
 export async function apiJson(request: Request, body: unknown, init: ResponseInit = {}) {
@@ -17,7 +18,7 @@ export async function apiJson(request: Request, body: unknown, init: ResponseIni
   return new Response(json, { ...init, headers });
 }
 export function apiError(request: Request, status: number, code: string, message: string) {
-  return apiJson(request, { apiVersion: API_VERSION, error: { code, message, status } }, { status });
+  return apiJson(request, { apiVersion: API_VERSION, error: { code, message, status } }, { status, headers: { "Cache-Control": "no-store" } });
 }
 export function integerParam(value: string | null, fallback: number, min: number, max: number) {
   const parsed = Number(value);

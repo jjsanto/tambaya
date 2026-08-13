@@ -19,6 +19,7 @@ export function Footer() {
           <Link href="/explore">Explore</Link>
           <Link href="/categories">Categories</Link>
           <Link href="/developers/api">Developers / API</Link>
+          <Link href="/account/developer">API dashboard</Link>
         </nav>
       </div>
     </footer>

@@ -1,10 +1,12 @@
 import { getQuestionRepository } from "@/data/question-service";
 import { API_VERSION, apiError, apiJson } from "@/lib/public-api";
+import { withPublicApiAccess } from "@/lib/api-access";
 
 export async function GET(
   request: Request,
   { params }: { params: Promise<{ slug: string }> },
 ) {
+ return withPublicApiAccess(request,"/questions/{slug}/relationships",async()=>{
   const { slug } = await params;
   const repository = await getQuestionRepository();
   const question = await repository.findBySlug(slug);
@@ -35,4 +37,5 @@ export async function GET(
       links: { question: `/api/v1/questions/${item.question.slug}` },
     })),
   });
+ });
 }

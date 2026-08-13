@@ -22,6 +22,9 @@ export default function PublicApiPage() {
           relationships between them. Version 1 is anonymous and read-only.
         </p>
         <div className="actions">
+          <Link className="button" href="/account/developer">
+            Manage API keys
+          </Link>
           <Link className="button" href="/api/v1/openapi.json">
             OpenAPI specification
           </Link>
@@ -41,6 +44,18 @@ export default function PublicApiPage() {
             </article>
           ))}
         </div>
+      </section>
+
+      <section>
+        <h2>Authentication and quotas</h2>
+        <p>
+          Anonymous clients can make 100 requests per day. A personal API key
+          raises that allowance to 5,000 requests per day and unlocks usage
+          reporting in My Space. Send it as a bearer token and never place it in
+          a URL.
+        </p>
+        <pre><code>{`curl -H "Authorization: Bearer YOUR_KEY" \\\n+  "https://tambaya.jjsanto.workers.dev/api/v1/questions?pageSize=6"`}</code></pre>
+        <p><Link className="text-link" href="/account/developer">Create or revoke API keys →</Link></p>
       </section>
 
       <section>

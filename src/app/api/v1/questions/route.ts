@@ -1,8 +1,10 @@
 import { getQuestionRepository } from "@/data/question-service";
 import { answerStatuses } from "@/domain/question";
 import { API_VERSION, apiError, apiJson, integerParam } from "@/lib/public-api";
+import { withPublicApiAccess } from "@/lib/api-access";
 
 export async function GET(request: Request) {
+ return withPublicApiAccess(request,"/questions",async()=>{
   const url = new URL(request.url);
   const page = integerParam(url.searchParams.get("page"), 1, 1, 100000);
   const pageSize = integerParam(url.searchParams.get("pageSize"), 20, 1, 50);
@@ -21,4 +23,5 @@ export async function GET(request: Request) {
     pagination: { page,pageSize,total,totalPages:Math.ceil(total/pageSize),hasNext:page*pageSize<total,hasPrevious:page>1 },
     filters: { status:status??null,category:filters.category??null,tag:filters.tag??null,sort },
   });
+ });
 }
