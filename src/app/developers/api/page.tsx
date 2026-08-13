@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import Image from "next/image";
 import Link from "next/link";
 
 export const metadata: Metadata = { title: "Public API" };
@@ -14,7 +15,8 @@ const endpoints = [
 export default function PublicApiPage() {
   return (
     <div className="page shell api-docs">
-      <header className="page-intro">
+      <header className="api-docs-hero">
+       <div className="page-intro">
         <span className="eyebrow">For developers and AI agents</span>
         <h1>Tambaya Public API</h1>
         <p>
@@ -32,6 +34,8 @@ export default function PublicApiPage() {
             API discovery document
           </Link>
         </div>
+       </div>
+       <Image className="api-docs-meerkat" src="/images/tambaya-meerkat-api.png" width={1536} height={1024} priority sizes="(max-width: 900px) 92vw, 48vw" alt="A curious meerkat traces Tambaya questions through a network of structured data"/>
       </header>
 
       <section>
