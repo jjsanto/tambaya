@@ -118,6 +118,7 @@ export default async function QuestionPage({
               </p>
               <p>{question.contextSummary}</p>
               <div className="tag-row">
+                {(question.categories??[]).filter(category=>!category.primary).map(category=><Link href={`/categories/${category.slug}`} key={category.slug}>{category.name}</Link>)}
                 {question.tags.map((t) => (
                   <span key={t}>#{t}</span>
                 ))}
@@ -134,6 +135,7 @@ export default async function QuestionPage({
           </div>
         </div>
       </header>
+      {(question.phrasings?.length??0)>0&&<section className="phrasing-history shell"><span className="eyebrow">Language through time</span><h2>How the question was phrased</h2><div>{question.phrasings!.map((phrasing,index)=><article key={`${phrasing.period}-${index}`}><small>{phrasing.period} · {phrasing.language}</small><blockquote>{phrasing.text}</blockquote>{phrasing.note&&<p>{phrasing.note}</p>}{phrasing.sourceUrl&&<a className="text-link" href={phrasing.sourceUrl}>Source →</a>}</article>)}</div></section>}
       <nav className="story-nav">
         <div className="shell">
           <a href="#story">Story</a>

@@ -94,7 +94,10 @@ export type AnswerAttempt = {
   scope: string;
   significance: string;
   unresolved: string;
+  outcomeType?: "PARTIAL" | "DISPUTED" | "SUPERSEDED" | "ABANDONED" | "ONGOING";
+  outcomeNote?: string;
 };
+export type QuestionPhrasing = { text:string; period:string; language:string; sourceUrl:string|null; sourceTitle:string|null; note:string|null };
 export type QuestionCategory = { name: string; slug: string; primary: boolean };
 export type QuestionStatusEvent = {
   occurredAt: string;
@@ -119,6 +122,7 @@ export type PublicQuestion = {
   verifiedStatus: AnswerStatus;
   verificationState: VerificationState;
   statusHistory?: QuestionStatusEvent[];
+  phrasings?: QuestionPhrasing[];
   contextSummary: string;
   origins: string;
   evolution: string;

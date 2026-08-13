@@ -52,15 +52,20 @@ type KeyTermEditorItem = { term: string; description: string };
 type PersonEditorItem = { name: string; period: string; association: string };
 type AnswerAttemptEditorItem = EnrichmentProposal["answerAttempts"][number] & {
   approved: boolean;
+  outcomeType?: "PARTIAL"|"DISPUTED"|"SUPERSEDED"|"ABANDONED"|"ONGOING";
+  outcomeNote?: string;
 };
+type PhrasingEditorItem={text:string;period:string;language:string;sourceUrl:string;sourceTitle:string;note:string};
 type EditorialDetail = EditorialQuestion & {
   category_id: string;
+  category_ids?:string[];
   categories: { id: string; name: string }[];
   sections: StoryEditorSection[];
   timeline: TimelineEditorEvent[];
   keyTerms: KeyTermEditorItem[];
   people: PersonEditorItem[];
   answerAttempts: EnrichmentProposal["answerAttempts"];
+  phrasings?:PhrasingEditorItem[];
   liveSections: StoryEditorSection[];
   hasPendingRevision: boolean;
   revisionDraftUpdatedAt: string | null;
@@ -375,6 +380,8 @@ export function EditorialWorkspace({
     AnswerAttemptEditorItem[]
   >([]);
   const [editorCategoryId, setEditorCategoryId] = useState("");
+  const [editorCategoryIds,setEditorCategoryIds]=useState<string[]>([]);
+  const [editorPhrasings,setEditorPhrasings]=useState<PhrasingEditorItem[]>([]);
   const [previewStory, setPreviewStory] = useState(false);
   const [proposal, setProposal] = useState<EnrichmentProposal | null>(null);
   const [approvedRelationships, setApprovedRelationships] = useState<
@@ -565,10 +572,12 @@ export function EditorialWorkspace({
       return;
     setBusy(true);
     try {
+      const statusEvidenceUrl=window.prompt("Evidence URL for this status classification (optional HTTPS URL):")?.trim()??"";
+      const statusNote=window.prompt("Editorial note explaining this status classification (optional):")?.trim()??"";
       await api(`/api/editorial/questions/${question.id}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ action: "publish", verifiedStatus }),
+        body: JSON.stringify({ action: "publish", verifiedStatus,statusEvidenceUrl,statusNote }),
       });
       setMessage("Question reviewed and published.");
       await load();
@@ -659,6 +668,8 @@ export function EditorialWorkspace({
       setEditing(detail);
       setEditorContext(detail.context_summary);
       setEditorCategoryId(detail.category_id);
+      setEditorCategoryIds(detail.category_ids?.length?detail.category_ids:[detail.category_id]);
+      setEditorPhrasings(detail.phrasings??[]);
       setEditorSections(detail.sections.length ? detail.sections : defaults);
       setEditorTimeline(detail.timeline ?? []);
       setEditorKeyTerms(detail.keyTerms ?? []);
@@ -1097,6 +1108,8 @@ export function EditorialWorkspace({
             (attempt) => attempt.approved,
           ),
           categoryId: editorCategoryId,
+          categoryIds:editorCategoryIds,
+          phrasings:editorPhrasings,
           sections: editorSections,
           relationships: relationshipSuggestions.filter((relationship) =>
             approvedRelationships.has(
@@ -1140,6 +1153,8 @@ export function EditorialWorkspace({
             (attempt) => attempt.approved,
           ),
           categoryId: editorCategoryId,
+          categoryIds:editorCategoryIds,
+          phrasings:editorPhrasings,
           sections: editorSections,
           relationships: relationshipSuggestions.filter((relationship) =>
             approvedRelationships.has(
@@ -2217,7 +2232,7 @@ export function EditorialWorkspace({
                       <select
                         value={editorCategoryId}
                         onChange={(event) =>
-                          setEditorCategoryId(event.target.value)
+                          {setEditorCategoryId(event.target.value);setEditorCategoryIds(current=>[event.target.value,...current.filter(id=>id!==event.target.value)]);}
                         }
                       >
                         {editing.categories.map((category) => (
@@ -2227,6 +2242,16 @@ export function EditorialWorkspace({
                         ))}
                       </select>
                     </label>
+                    <div className="secondary-category-editor">
+                      <strong>Secondary categories</strong>
+                      {editing.categories.filter(category=>category.id!==editorCategoryId).map(category=><label key={category.id}><input type="checkbox" checked={editorCategoryIds.includes(category.id)} onChange={(event)=>setEditorCategoryIds(current=>event.target.checked?[...current,category.id]:current.filter(id=>id!==category.id))}/>{category.name}</label>)}
+                    </div>
+                  </fieldset>
+                  <fieldset>
+                    <legend>Historical phrasings</legend>
+                    <p>Record sourced formulations of this question across periods. Do not infer wording from general timeline prose.</p>
+                    {editorPhrasings.map((phrasing,index)=><article className="phrasing-editor" key={index}><label>Historical wording<textarea required minLength={10} value={phrasing.text} onChange={event=>setEditorPhrasings(current=>current.map((item,position)=>position===index?{...item,text:event.target.value}:item))}/></label><label>Period<input required value={phrasing.period} onChange={event=>setEditorPhrasings(current=>current.map((item,position)=>position===index?{...item,period:event.target.value}:item))}/></label><label>Language<input required value={phrasing.language} onChange={event=>setEditorPhrasings(current=>current.map((item,position)=>position===index?{...item,language:event.target.value}:item))}/></label><label>Source title<input value={phrasing.sourceTitle} onChange={event=>setEditorPhrasings(current=>current.map((item,position)=>position===index?{...item,sourceTitle:event.target.value}:item))}/></label><label>HTTPS source URL<input type="url" required value={phrasing.sourceUrl} onChange={event=>setEditorPhrasings(current=>current.map((item,position)=>position===index?{...item,sourceUrl:event.target.value}:item))}/></label><label>Editorial note<textarea value={phrasing.note} onChange={event=>setEditorPhrasings(current=>current.map((item,position)=>position===index?{...item,note:event.target.value}:item))}/></label><button type="button" className="text-link" onClick={()=>setEditorPhrasings(current=>current.filter((_,position)=>position!==index))}>Remove phrasing</button></article>)}
+                    <button type="button" className="button ghost small" onClick={()=>setEditorPhrasings(current=>[...current,{text:"",period:"",language:"en",sourceUrl:"",sourceTitle:"",note:""}])}>Add historical phrasing</button>
                   </fieldset>
                   <fieldset id="quality-summary">
                     <legend>Context summary</legend>
@@ -2572,6 +2597,8 @@ export function EditorialWorkspace({
                             />
                           </label>
                         ))}
+                        <label>Outcome<select value={attempt.outcomeType??"ONGOING"} onChange={event=>setEditorAnswerAttempts(current=>current.map((item,position)=>position===index?{...item,outcomeType:event.target.value as AnswerAttemptEditorItem["outcomeType"]}:item))}><option value="ONGOING">Ongoing</option><option value="PARTIAL">Partial</option><option value="DISPUTED">Disputed</option><option value="SUPERSEDED">Superseded</option><option value="ABANDONED">Abandoned</option></select></label>
+                        <label>Outcome note<textarea rows={2} value={attempt.outcomeNote??""} onChange={event=>setEditorAnswerAttempts(current=>current.map((item,position)=>position===index?{...item,outcomeNote:event.target.value}:item))}/></label>
                         {(
                           [
                             ["approach", "Approach taken"],
@@ -2631,6 +2658,8 @@ export function EditorialWorkspace({
                             scope: "",
                             significance: "",
                             unresolved: "",
+                            outcomeType:"ONGOING",
+                            outcomeNote:"",
                           },
                         ])
                       }

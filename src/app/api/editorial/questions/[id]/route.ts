@@ -67,7 +67,10 @@ type EditableAnswerAttempt = {
   scope: string;
   significance: string;
   unresolved: string;
+  outcomeType?: "PARTIAL"|"DISPUTED"|"SUPERSEDED"|"ABANDONED"|"ONGOING";
+  outcomeNote?: string;
 };
+type EditablePhrasing={text:string;period:string;language:string;sourceUrl:string;sourceTitle:string;note:string};
 type EditableKeyTerm = { term: string; description: string };
 type EditablePerson = { name: string; period: string; association: string };
 type AnswerAttemptRow = Omit<
@@ -76,6 +79,8 @@ type AnswerAttemptRow = Omit<
 > & {
   source_url: string;
   publication_date: string;
+  outcome_type?: EditableAnswerAttempt["outcomeType"];
+  outcome_note?: string;
 };
 type RevisionRow = { id: string; action: string; created_at: string };
 type RevisionDraftRow = {
@@ -249,6 +254,8 @@ export async function GET(
     keyTermsResult,
     peopleResult,
     answerAttemptsResult,
+    phrasingsResult,
+    assignedCategoriesResult,
   ] = await Promise.all([
     env.DB.prepare(
       "SELECT id,section_key,kicker,title,position FROM question_story_sections WHERE question_id=? ORDER BY position",
@@ -301,10 +308,12 @@ export async function GET(
       "SELECT name,period,association FROM person_associations WHERE question_id=? ORDER BY position",
     ).bind(id).all<EditablePerson>(),
     env.DB.prepare(
-      "SELECT title,author,publisher,source_url,publication_date,approach,scope,significance,unresolved FROM question_answer_attempts WHERE question_id=? AND verified=1 ORDER BY position",
+      "SELECT title,author,publisher,source_url,publication_date,approach,scope,significance,unresolved,outcome_type,outcome_note FROM question_answer_attempts WHERE question_id=? AND verified=1 ORDER BY position",
     )
       .bind(id)
       .all<AnswerAttemptRow>(),
+    env.DB.prepare("SELECT text,period,language,COALESCE(source_url,'') sourceUrl,COALESCE(source_title,'') sourceTitle,COALESCE(note,'') note FROM question_phrasings WHERE question_id=? AND verified=1 ORDER BY position").bind(id).all<EditablePhrasing>(),
+    env.DB.prepare("SELECT category_id id,is_primary FROM question_categories WHERE question_id=? ORDER BY is_primary DESC,position").bind(id).all<{id:string;is_primary:number}>(),
   ]);
   const paragraphs = paragraphsResult.results ?? [];
   const blocks = blocksResult.results ?? [];
@@ -334,6 +343,8 @@ export async function GET(
         keyTerms?: EditableKeyTerm[];
         people?: EditablePerson[];
         answerAttempts?: EditableAnswerAttempt[];
+        phrasings?: EditablePhrasing[];
+        categoryIds?: string[];
       })
     : null;
   const workingSections = workingCopy?.sections?.map((section) => ({
@@ -353,6 +364,7 @@ export async function GET(
         context_summary:
           workingCopy?.contextSummary ?? question.context_summary,
         category_id: workingCopy?.categoryId ?? question.category_id,
+        category_ids: workingCopy?.categoryIds ?? (assignedCategoriesResult.results??[]).map(item=>item.id),
         categories: categoriesResult.results ?? [],
         sections: workingSections ?? liveSections,
         timeline:
@@ -376,7 +388,10 @@ export async function GET(
             scope: attempt.scope,
             significance: attempt.significance,
             unresolved: attempt.unresolved,
+            outcomeType: attempt.outcome_type,
+            outcomeNote: attempt.outcome_note,
           })),
+        phrasings:workingCopy?.phrasings??phrasingsResult.results??[],
         liveSections,
         candidates: candidatesResult.results ?? [],
         relationships: (relationshipsResult.results ?? []).map(
@@ -590,6 +605,12 @@ export async function PATCH(
         { error: "Choose a valid question category." },
         { status: 400 },
       );
+    const categoryIds=[...new Set([categoryId,...(Array.isArray(body.categoryIds)?body.categoryIds.map(String):[])])].slice(0,5);
+    const validCategories=await env.DB.prepare(`SELECT id FROM categories WHERE id IN (${categoryIds.map(()=>"?").join(",")})`).bind(...categoryIds).all<{id:string}>();
+    if((validCategories.results??[]).length!==categoryIds.length)return Response.json({error:"One secondary category is invalid."},{status:400});
+    const phrasings:EditablePhrasing[]=[];
+    if(!Array.isArray(body.phrasings)||body.phrasings.length>20)return Response.json({error:"Provide up to 20 historical phrasings."},{status:400});
+    for(const [position,raw] of body.phrasings.entries()){const item=raw as Record<string,unknown>;const phrasing={text:String(item.text??"").trim(),period:String(item.period??"").trim(),language:String(item.language??"en").trim(),sourceUrl:String(item.sourceUrl??"").trim(),sourceTitle:String(item.sourceTitle??"").trim(),note:String(item.note??"").trim()};if(phrasing.text.length<10||!phrasing.period||!phrasing.language||!/^https:\/\//i.test(phrasing.sourceUrl))return Response.json({error:`Historical phrasing ${position+1} needs wording, period, language, and a credible HTTPS source.`},{status:400});phrasings.push(phrasing);}
     const requestedRelationships = Array.isArray(body.relationships)
       ? body.relationships.slice(0, 8)
       : [];
@@ -808,6 +829,8 @@ export async function PATCH(
       questionText: draft.question_text,
       contextSummary,
       categoryId: category.id,
+      categoryIds,
+      phrasings,
       sections,
       timeline,
       answerAttempts,
@@ -872,7 +895,9 @@ export async function PATCH(
         id,
       ),
       env.DB.prepare("DELETE FROM person_associations WHERE question_id=?").bind(id),
+      env.DB.prepare("DELETE FROM question_phrasings WHERE question_id=?").bind(id),
     ];
+    phrasings.forEach((item,position)=>statements.push(env.DB.prepare("INSERT INTO question_phrasings(id,question_id,text,period,language,source_url,source_title,note,verified,position) VALUES(?,?,?,?,?,?,?,?,1,?)").bind(crypto.randomUUID(),id,item.text,item.period,item.language,item.sourceUrl,item.sourceTitle,item.note,position)));
     keyTerms.forEach((item, position) =>
       statements.push(
         env.DB.prepare(
@@ -890,7 +915,7 @@ export async function PATCH(
     answerAttempts.forEach((attempt, position) =>
       statements.push(
         env.DB.prepare(
-          "INSERT INTO question_answer_attempts (id,question_id,title,author,publisher,source_url,publication_date,approach,scope,significance,unresolved,verified,position) VALUES (?,?,?,?,?,?,?,?,?,?,?,1,?)",
+          "INSERT INTO question_answer_attempts (id,question_id,title,author,publisher,source_url,publication_date,approach,scope,significance,unresolved,outcome_type,outcome_note,verified,position) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,1,?)",
         ).bind(
           crypto.randomUUID(),
           id,
@@ -903,6 +928,8 @@ export async function PATCH(
           attempt.scope,
           attempt.significance,
           attempt.unresolved,
+          attempt.outcomeType??"ONGOING",
+          attempt.outcomeNote??"",
           position,
         ),
       ),
@@ -969,6 +996,8 @@ export async function PATCH(
     );
     statements.push(env.DB.prepare("INSERT INTO question_categories(question_id,category_id,is_primary,position,assigned_by) VALUES(?,?,1,0,'EDITORIAL') ON CONFLICT(question_id,category_id) DO UPDATE SET is_primary=1,position=0,assigned_by='EDITORIAL'").bind(id,category.id));
     statements.push(env.DB.prepare("UPDATE question_categories SET is_primary=0 WHERE question_id=? AND category_id<>?").bind(id,category.id));
+    statements.push(env.DB.prepare(`DELETE FROM question_categories WHERE question_id=? AND category_id NOT IN (${categoryIds.map(()=>"?").join(",")})`).bind(id,...categoryIds));
+    categoryIds.filter(value=>value!==category.id).forEach((value,position)=>statements.push(env.DB.prepare("INSERT INTO question_categories(question_id,category_id,is_primary,position,assigned_by) VALUES(?,?,0,?,'EDITORIAL') ON CONFLICT(question_id,category_id) DO UPDATE SET is_primary=0,position=excluded.position,assigned_by='EDITORIAL'").bind(id,value,position+1)));
     statements.push(
       env.DB.prepare(
         "INSERT INTO question_content_sections (id,question_id,section_type,body,provenance,publication_state,answer_leak_state,position) VALUES (?,?, 'SUMMARY',?,'EDITORIAL','DRAFT','PENDING',0) ON CONFLICT(question_id,section_type) DO UPDATE SET body=excluded.body,provenance='EDITORIAL',publication_state='DRAFT',answer_leak_state='PENDING',updated_at=CURRENT_TIMESTAMP",
@@ -1020,6 +1049,8 @@ export async function PATCH(
     const revised = JSON.parse(revisionDraft.snapshot_json) as {
       contextSummary?: string;
       categoryId?: string;
+      categoryIds?:string[];
+      phrasings?:EditablePhrasing[];
       sections?: EditableSection[];
       timeline?: EditableTimelineEvent[];
       answerAttempts?: EditableAnswerAttempt[];
@@ -1101,7 +1132,9 @@ export async function PATCH(
         id,
       ),
       env.DB.prepare("DELETE FROM person_associations WHERE question_id=?").bind(id),
+      env.DB.prepare("DELETE FROM question_phrasings WHERE question_id=?").bind(id),
     ];
+    (revised.phrasings??[]).forEach((item,position)=>statements.push(env.DB.prepare("INSERT INTO question_phrasings(id,question_id,text,period,language,source_url,source_title,note,verified,position) VALUES(?,?,?,?,?,?,?,?,1,?)").bind(crypto.randomUUID(),id,item.text,item.period,item.language,item.sourceUrl,item.sourceTitle,item.note,position)));
     (revised.keyTerms ?? []).forEach((item, position) =>
       statements.push(
         env.DB.prepare(
@@ -1119,7 +1152,7 @@ export async function PATCH(
     (revised.answerAttempts ?? []).forEach((attempt, position) =>
       statements.push(
         env.DB.prepare(
-          "INSERT INTO question_answer_attempts (id,question_id,title,author,publisher,source_url,publication_date,approach,scope,significance,unresolved,verified,position) VALUES (?,?,?,?,?,?,?,?,?,?,?,1,?)",
+          "INSERT INTO question_answer_attempts (id,question_id,title,author,publisher,source_url,publication_date,approach,scope,significance,unresolved,outcome_type,outcome_note,verified,position) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,1,?)",
         ).bind(
           crypto.randomUUID(),
           id,
@@ -1132,6 +1165,8 @@ export async function PATCH(
           attempt.scope,
           attempt.significance,
           attempt.unresolved,
+          attempt.outcomeType??"ONGOING",
+          attempt.outcomeNote??"",
           position,
         ),
       ),
@@ -1218,6 +1253,9 @@ export async function PATCH(
     );
     statements.push(env.DB.prepare("INSERT INTO question_categories(question_id,category_id,is_primary,position,assigned_by) VALUES(?,?,1,0,'EDITORIAL') ON CONFLICT(question_id,category_id) DO UPDATE SET is_primary=1,position=0,assigned_by='EDITORIAL'").bind(id,revisedCategory.id));
     statements.push(env.DB.prepare("UPDATE question_categories SET is_primary=0 WHERE question_id=? AND category_id<>?").bind(id,revisedCategory.id));
+    const revisedCategoryIds=[...new Set([revisedCategory.id,...(revised.categoryIds??[])])].slice(0,5);
+    statements.push(env.DB.prepare(`DELETE FROM question_categories WHERE question_id=? AND category_id NOT IN (${revisedCategoryIds.map(()=>"?").join(",")})`).bind(id,...revisedCategoryIds));
+    revisedCategoryIds.filter(value=>value!==revisedCategory.id).forEach((value,position)=>statements.push(env.DB.prepare("INSERT INTO question_categories(question_id,category_id,is_primary,position,assigned_by) VALUES(?,?,0,?,'EDITORIAL') ON CONFLICT(question_id,category_id) DO UPDATE SET is_primary=0,position=excluded.position,assigned_by='EDITORIAL'").bind(id,value,position+1)));
     statements.push(
       env.DB.prepare(
         "DELETE FROM question_relationships WHERE source_question_id=? AND created_by='AI_ASSISTED'",
@@ -1323,6 +1361,9 @@ export async function PATCH(
     pendingConnectionCount: pendingConnections?.count ?? 0,
   });
   if (!quality.ready) return publicationBlocked(quality.blockers);
+  const statusEvidenceUrl=String(body.statusEvidenceUrl??"").trim();
+  const statusNote=String(body.statusNote??"").trim();
+  if(statusEvidenceUrl&&!/^https:\/\//i.test(statusEvidenceUrl))return Response.json({error:"Status evidence must use a credible HTTPS URL."},{status:400});
   await env.DB.batch([
     env.DB.prepare(
       "UPDATE question_content_sections SET publication_state='PUBLISHED',answer_leak_state='PASSED',reviewed_by='EDITORIAL',reviewed_at=CURRENT_TIMESTAMP,updated_at=CURRENT_TIMESTAMP WHERE question_id=? AND section_type='SUMMARY'",
@@ -1336,7 +1377,7 @@ export async function PATCH(
     env.DB.prepare(
       "UPDATE questions SET publication_state='PUBLISHED',visibility='PUBLIC',submission_state=CASE WHEN submission_state IS NULL THEN NULL ELSE 'APPROVED' END,review_notes=NULL,reviewed_at=CURRENT_TIMESTAMP,verified_status=?,verification_state='VERIFIED',last_verified_at=CURRENT_TIMESTAMP,published_at=CURRENT_TIMESTAMP,updated_at=CURRENT_TIMESTAMP WHERE id=?",
     ).bind(body.verifiedStatus, id),
-    env.DB.prepare("INSERT INTO question_status_events(id,question_id,occurred_at,from_status,to_status,verifier_type,verifier_name,note) SELECT ?,q.id,CURRENT_TIMESTAMP,(SELECT e.to_status FROM question_status_events e WHERE e.question_id=q.id ORDER BY e.occurred_at DESC,e.created_at DESC LIMIT 1),?,'EDITORIAL','Tambaya Editorial','Status verified during publication' FROM questions q WHERE q.id=? AND COALESCE((SELECT e.to_status FROM question_status_events e WHERE e.question_id=q.id ORDER BY e.occurred_at DESC,e.created_at DESC LIMIT 1),'')<>?").bind(crypto.randomUUID(),body.verifiedStatus,id,body.verifiedStatus),
+    env.DB.prepare("INSERT INTO question_status_events(id,question_id,occurred_at,from_status,to_status,evidence_url,verifier_type,verifier_name,note) SELECT ?,q.id,CURRENT_TIMESTAMP,(SELECT e.to_status FROM question_status_events e WHERE e.question_id=q.id ORDER BY e.occurred_at DESC,e.created_at DESC LIMIT 1),?,?,'EDITORIAL','Tambaya Editorial',? FROM questions q WHERE q.id=? AND COALESCE((SELECT e.to_status FROM question_status_events e WHERE e.question_id=q.id ORDER BY e.occurred_at DESC,e.created_at DESC LIMIT 1),'')<>?").bind(crypto.randomUUID(),body.verifiedStatus,statusEvidenceUrl||null,statusNote||"Status verified during publication",id,body.verifiedStatus),
     env.DB.prepare("DELETE FROM question_search WHERE question_id=?").bind(id),
     env.DB.prepare(
       "INSERT INTO question_search (question_id,question_text,context_summary,category_name,tags) SELECT q.id,q.question_text,q.context_summary,COALESCE(c.name,q.category_name,''),COALESCE((SELECT group_concat(t.name,' ') FROM question_tags qt JOIN tags t ON t.id=qt.tag_id WHERE qt.question_id=q.id),'') FROM questions q LEFT JOIN categories c ON c.id=q.category_id WHERE q.id=?",

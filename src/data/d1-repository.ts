@@ -1,6 +1,7 @@
 import {
   slugifyQuestion,
   type AnswerStatus,
+  type AnswerAttempt,
   type EditorialReview,
   type PublicQuestion,
   type QuestionReference,
@@ -43,7 +44,10 @@ type AnswerAttemptRow = {
   scope: string;
   significance: string;
   unresolved: string;
+  outcome_type?: AnswerAttempt["outcomeType"];
+  outcome_note?: string;
 };
+type PhrasingRow={text:string;period:string;language:string;source_url:string|null;source_title:string|null;note:string|null};
 type TagRow = { name: string };
 type StoryRow = {
   id: string;
@@ -167,6 +171,7 @@ export class D1QuestionRepository implements QuestionRepository {
       answerAttemptsResult,
       categoriesResult,
       statusEventsResult,
+      phrasingsResult,
     ] = await Promise.all([
       this.db
         .prepare(
@@ -230,12 +235,13 @@ export class D1QuestionRepository implements QuestionRepository {
         .all<BranchRow>(),
       this.db
         .prepare(
-          "SELECT title,author,publisher,source_url,publication_date,approach,scope,significance,unresolved FROM question_answer_attempts WHERE question_id=? AND verified=1 ORDER BY position",
+          "SELECT title,author,publisher,source_url,publication_date,approach,scope,significance,unresolved,outcome_type,outcome_note FROM question_answer_attempts WHERE question_id=? AND verified=1 ORDER BY position",
         )
         .bind(row.id)
         .all<AnswerAttemptRow>(),
       this.db.prepare("SELECT c.name,c.slug,qc.is_primary FROM question_categories qc JOIN categories c ON c.id=qc.category_id WHERE qc.question_id=? ORDER BY qc.is_primary DESC,qc.position,c.name").bind(row.id).all<CategoryRow>(),
       this.db.prepare("SELECT occurred_at,from_status,to_status,evidence_url,verifier_type,verifier_name,note FROM question_status_events WHERE question_id=? ORDER BY occurred_at DESC,created_at DESC").bind(row.id).all<StatusEventRow>(),
+      this.db.prepare("SELECT text,period,language,source_url,source_title,note FROM question_phrasings WHERE question_id=? AND verified=1 ORDER BY position,period").bind(row.id).all<PhrasingRow>(),
     ]);
     const sections = new Map(
       (sectionsResult.results ?? []).map((section) => [
@@ -272,6 +278,7 @@ export class D1QuestionRepository implements QuestionRepository {
       verifiedStatus: row.verified_status,
       verificationState: row.verification_state,
       statusHistory: (statusEventsResult.results ?? []).map(item=>({occurredAt:item.occurred_at,fromStatus:item.from_status,toStatus:item.to_status,evidenceUrl:item.evidence_url,verifierType:item.verifier_type,verifierName:item.verifier_name,note:item.note})),
+      phrasings:(phrasingsResult.results??[]).map(item=>({text:item.text,period:item.period,language:item.language,sourceUrl:item.source_url,sourceTitle:item.source_title,note:item.note})),
       featured: Boolean(row.featured),
       contextSummary: body("SUMMARY"),
       origins: body("ORIGINS"),
@@ -300,6 +307,8 @@ export class D1QuestionRepository implements QuestionRepository {
         scope: attempt.scope,
         significance: attempt.significance,
         unresolved: attempt.unresolved,
+        outcomeType: attempt.outcome_type,
+        outcomeNote: attempt.outcome_note,
       })),
       storySections: (storyResult.results ?? []).map((section) => ({
         id: section.section_key,
