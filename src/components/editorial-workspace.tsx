@@ -421,6 +421,7 @@ export function EditorialWorkspace({
   const [queueReadiness, setQueueReadiness] = useState("");
   const [queueSearch, setQueueSearch] = useState("");
   const [debouncedSearch, setDebouncedSearch] = useState("");
+  const [semanticProgress,setSemanticProgress]=useState<{indexed:number;total:number;pending:number;running:boolean}|null>(null);
 
   useEffect(() => {
     const timer = window.setTimeout(() => setDebouncedSearch(queueSearch.trim()), 300);
@@ -536,6 +537,9 @@ export function EditorialWorkspace({
 
   async function rebuildSemanticIndex() {
     setBusy(true);
+    setSemanticProgress({indexed:0,total:0,pending:0,running:true});
+    setMessage("Starting semantic catalogue rebuild…");
+    await new Promise(resolve=>window.setTimeout(resolve,0));
     let cursor = "";
     let total = 0;
     try {
@@ -543,16 +547,19 @@ export function EditorialWorkspace({
         const result = (await api("/api/editorial/semantic-index", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ cursor, limit: 50 }),
-        })) as unknown as { indexed: number; nextCursor: string; done: boolean };
+          body: JSON.stringify({ cursor, limit: 20, force:true }),
+        })) as unknown as { indexed: number; nextCursor: string; done: boolean;publishedCount:number;pendingCount:number };
         total += result.indexed;
         cursor = result.nextCursor;
+        setSemanticProgress({indexed:total,total:result.publishedCount,pending:result.pendingCount,running:!result.done});
         setMessage(`Semantic catalogue: ${total} questions indexed…`);
         if (result.done) break;
+        await new Promise(resolve=>window.setTimeout(resolve,75));
       }
       setMessage(`Semantic catalogue ready: ${total} published questions indexed.`);
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "Semantic indexing failed.");
+      setSemanticProgress(current=>current?{...current,running:false}:null);
     } finally {
       setBusy(false);
     }
@@ -1372,8 +1379,9 @@ export function EditorialWorkspace({
             Refresh
           </button>
           <button type="button" onClick={() => void rebuildSemanticIndex()} disabled={busy}>
-            Rebuild semantic catalogue
+            {semanticProgress?.running?"Rebuilding…":"Rebuild semantic catalogue"}
           </button>
+          {semanticProgress&&<span className="semantic-progress" role="status">{semanticProgress.indexed} / {semanticProgress.total||"?"} processed{semanticProgress.running?"…":""}</span>}
         </nav>
       )}
       {(questions.length > 0 || workspaceMode === "create") && (

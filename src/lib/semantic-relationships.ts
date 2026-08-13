@@ -48,12 +48,19 @@ export async function semanticCandidates(env:CloudflareBindings,input:{id:string
   return diverse;
 }
 
-export async function indexQuestionBatch(env:CloudflareBindings,after="",limit=50) {
+export async function semanticIndexStatus(env:CloudflareBindings){
+  const row=await env.DB.prepare("SELECT COUNT(*) publishedCount,SUM(CASE WHEN s.question_id IS NOT NULL AND s.content_updated_at=q.updated_at THEN 1 ELSE 0 END) indexedCount,SUM(CASE WHEN s.question_id IS NULL OR s.content_updated_at<>q.updated_at THEN 1 ELSE 0 END) pendingCount,MAX(s.indexed_at) lastIndexedAt FROM questions q LEFT JOIN question_semantic_index_state s ON s.question_id=q.id WHERE q.publication_state='PUBLISHED'").first<{publishedCount:number;indexedCount:number;pendingCount:number;lastIndexedAt:string|null}>();
+  return row??{publishedCount:0,indexedCount:0,pendingCount:0,lastIndexedAt:null};
+}
+
+export async function indexQuestionBatch(env:CloudflareBindings,after="",limit=20,force=false) {
   if(!env.AI||!env.QUESTION_VECTORS) throw new Error("Semantic bindings are not configured.");
-  const result=await env.DB.prepare("SELECT id,slug,question_text questionText,context_summary contextSummary,category_name category,category_id categoryId,updated_at updatedAt FROM questions WHERE publication_state='PUBLISHED' AND id>? ORDER BY id LIMIT ?").bind(after,Math.min(100,Math.max(1,limit))).all<{id:string;slug:string;questionText:string;contextSummary:string;category:string;categoryId:string;updatedAt:string}>();
+  const result=await env.DB.prepare(`SELECT q.id,q.slug,q.question_text questionText,q.context_summary contextSummary,q.category_name category,q.category_id categoryId,q.updated_at updatedAt FROM questions q LEFT JOIN question_semantic_index_state s ON s.question_id=q.id WHERE q.publication_state='PUBLISHED' AND q.id>? ${force?"":"AND (s.question_id IS NULL OR s.content_updated_at<>q.updated_at)"} ORDER BY q.id LIMIT ?`).bind(after,Math.min(50,Math.max(1,limit))).all<{id:string;slug:string;questionText:string;contextSummary:string;category:string;categoryId:string;updatedAt:string}>();
   const rows=result.results??[];
   const vectors=await embed(env,rows.map(questionEmbeddingText));
   if(vectors.length!==rows.length) throw new Error("Embedding response did not match the requested batch.");
   await env.QUESTION_VECTORS.upsert(rows.map((row,index)=>({id:row.id,values:vectors[index],metadata:{slug:row.slug,categoryId:row.categoryId,updatedAt:row.updatedAt}})));
-  return {indexed:rows.length,nextCursor:rows.at(-1)?.id??after,done:rows.length<limit};
+  if(rows.length)await env.DB.batch(rows.map(row=>env.DB.prepare("INSERT INTO question_semantic_index_state(question_id,content_updated_at,indexed_at,model) VALUES(?,?,CURRENT_TIMESTAMP,?) ON CONFLICT(question_id) DO UPDATE SET content_updated_at=excluded.content_updated_at,indexed_at=CURRENT_TIMESTAMP,model=excluded.model").bind(row.id,row.updatedAt,QUESTION_EMBEDDING_MODEL)));
+  const status=await semanticIndexStatus(env);
+  return {indexed:rows.length,nextCursor:rows.at(-1)?.id??after,done:rows.length<limit||(!force&&status.pendingCount===0),...status};
 }
