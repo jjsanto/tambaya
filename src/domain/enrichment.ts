@@ -52,6 +52,8 @@ export type EnrichmentProposal = {
     type: RelationshipType;
     confidence: number;
     rationale: string;
+    evidenceUrl?: string;
+    evidenceNote?: string;
   }[];
   warnings: string[];
 };
@@ -268,6 +270,8 @@ export function parseEnrichmentProposal(value: unknown): EnrichmentProposal {
       const targetQuestion = clean(item.targetQuestion);
       const type = clean(item.type);
       const rationale = clean(item.rationale);
+      const evidenceUrl = safeUrl(item.evidenceUrl);
+      const evidenceNote = clean(item.evidenceNote);
       const confidence = Number(item.confidence);
       if (
         !targetId ||
@@ -283,7 +287,7 @@ export function parseEnrichmentProposal(value: unknown): EnrichmentProposal {
         return [];
       }
       return [
-        { targetId, targetSlug, targetQuestion, type, confidence, rationale },
+        { targetId, targetSlug, targetQuestion, type, confidence, rationale, evidenceUrl, evidenceNote },
       ];
     });
   warnings.push(

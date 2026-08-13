@@ -15,6 +15,7 @@ import type { CloudflareBindings } from "@/types/cloudflare";
 import { eventStatement } from "@/lib/submission-events";
 import { isUsefulKeyTermDescription } from "@/domain/enrichment";
 import { evaluateEditorialQuality } from "@/domain/editorial-quality";
+import { semanticCandidates } from "@/lib/semantic-relationships";
 
 type DraftRow = {
   id: string;
@@ -101,6 +102,8 @@ type ApprovedRelationship = {
   type: RelationshipType;
   confidence: number;
   rationale: string;
+  evidenceUrl: string;
+  evidenceNote: string;
 };
 type RelationshipRow = {
   targetId: string;
@@ -110,6 +113,8 @@ type RelationshipRow = {
   confidence: number;
   verified: number;
   rationale: string;
+  evidenceUrl: string;
+  evidenceNote: string;
 };
 type CandidateQuestion = {
   id: string;
@@ -283,7 +288,7 @@ export async function GET(
       .bind(id)
       .first<RevisionDraftRow>(),
     env.DB.prepare(
-      "SELECT r.target_question_id targetId,r.target_slug targetSlug,q.question_text targetQuestion,r.relationship_type type,COALESCE(r.confidence,0) confidence,r.verified,COALESCE(r.rationale,'') rationale FROM question_relationships r JOIN questions q ON q.id=r.target_question_id WHERE r.source_question_id=? AND r.created_by='AI_ASSISTED' ORDER BY r.verified DESC,r.confidence DESC",
+      "SELECT r.target_question_id targetId,r.target_slug targetSlug,q.question_text targetQuestion,r.relationship_type type,COALESCE(r.confidence,0) confidence,r.verified,COALESCE(r.rationale,'') rationale,COALESCE(r.evidence_url,'') evidenceUrl,COALESCE(r.evidence_note,'') evidenceNote FROM question_relationships r JOIN questions q ON q.id=r.target_question_id WHERE r.source_question_id=? AND r.created_by='AI_ASSISTED' ORDER BY r.verified DESC,r.confidence DESC",
     )
       .bind(id)
       .all<RelationshipRow>(),
@@ -393,11 +398,11 @@ export async function GET(
           })),
         phrasings:workingCopy?.phrasings??phrasingsResult.results??[],
         liveSections,
-        candidates: candidatesResult.results ?? [],
+        candidates: [...(await semanticCandidates(env,{id,questionText:question.question_text,contextSummary:question.context_summary,categoryId:question.category_id,category:(candidatesResult.results??[]).find(item=>item.categoryId===question.category_id)?.category??""}).catch(()=>[])),...(candidatesResult.results??[])].filter((item,index,array)=>array.findIndex(candidate=>candidate.id===item.id)===index),
         relationships: (relationshipsResult.results ?? []).map(
           (relationship) => ({
             ...relationship,
-            rationale: "Previously reviewed editorial connection.",
+            rationale: relationship.rationale || "Previously reviewed editorial connection.",
           }),
         ),
         hasPendingRevision: !!revisionDraft,
@@ -741,6 +746,8 @@ export async function PATCH(
       const rationale = String(item.rationale ?? "")
         .trim()
         .slice(0, 1000);
+      const evidenceUrl=String(item.evidenceUrl??"").trim();
+      const evidenceNote=String(item.evidenceNote??"").trim().slice(0,1500);
       if (
         !targetId ||
         targetId === id ||
@@ -748,7 +755,7 @@ export async function PATCH(
         !Number.isFinite(confidence) ||
         confidence < 0 ||
         confidence > 1 ||
-        rationale.length < 10
+        rationale.length < 10 || evidenceNote.length < 20 || (evidenceUrl&&!/^https:\/\//i.test(evidenceUrl))
       )
         return Response.json(
           { error: "One proposed question relationship is invalid." },
@@ -767,7 +774,7 @@ export async function PATCH(
           },
           { status: 400 },
         );
-      relationships.push({ targetId, targetSlug, type, confidence, rationale });
+      relationships.push({ targetId, targetSlug, type, confidence, rationale, evidenceUrl, evidenceNote });
     }
     if (
       !Array.isArray(body.sections) ||
@@ -1011,7 +1018,7 @@ export async function PATCH(
     relationships.forEach((relationship) =>
       statements.push(
         env.DB.prepare(
-          "INSERT INTO question_relationships (id,source_question_id,target_question_id,source_slug,target_slug,relationship_type,created_by,confidence,verified,rationale) SELECT ?,q.id,?,q.slug,?,?, 'AI_ASSISTED',?,1,? FROM questions q WHERE q.id=? ON CONFLICT(source_question_id,target_question_id,relationship_type) DO UPDATE SET created_by='AI_ASSISTED',confidence=excluded.confidence,verified=1,rationale=excluded.rationale",
+          "INSERT INTO question_relationships (id,source_question_id,target_question_id,source_slug,target_slug,relationship_type,created_by,confidence,verified,rationale,evidence_url,evidence_note,discovery_method) SELECT ?,q.id,?,q.slug,?,?, 'AI_ASSISTED',?,1,?,?,?,'SEMANTIC_EDITORIAL' FROM questions q WHERE q.id=? ON CONFLICT(source_question_id,target_question_id,relationship_type) DO UPDATE SET created_by='AI_ASSISTED',confidence=excluded.confidence,verified=1,rationale=excluded.rationale,evidence_url=excluded.evidence_url,evidence_note=excluded.evidence_note,discovery_method=excluded.discovery_method",
         ).bind(
           crypto.randomUUID(),
           relationship.targetId,
@@ -1019,6 +1026,8 @@ export async function PATCH(
           relationship.type,
           relationship.confidence,
           relationship.rationale,
+          relationship.evidenceUrl,
+          relationship.evidenceNote,
           id,
         ),
       ),
@@ -1264,7 +1273,7 @@ export async function PATCH(
     (revised.relationships ?? []).forEach((relationship) =>
       statements.push(
         env.DB.prepare(
-          "INSERT INTO question_relationships (id,source_question_id,target_question_id,source_slug,target_slug,relationship_type,created_by,confidence,verified,rationale) SELECT ?,q.id,?,q.slug,?,?, 'AI_ASSISTED',?,1,? FROM questions q WHERE q.id=? ON CONFLICT(source_question_id,target_question_id,relationship_type) DO UPDATE SET created_by='AI_ASSISTED',confidence=excluded.confidence,verified=1,rationale=excluded.rationale",
+          "INSERT INTO question_relationships (id,source_question_id,target_question_id,source_slug,target_slug,relationship_type,created_by,confidence,verified,rationale,evidence_url,evidence_note,discovery_method) SELECT ?,q.id,?,q.slug,?,?, 'AI_ASSISTED',?,1,?,?,?,'SEMANTIC_EDITORIAL' FROM questions q WHERE q.id=? ON CONFLICT(source_question_id,target_question_id,relationship_type) DO UPDATE SET created_by='AI_ASSISTED',confidence=excluded.confidence,verified=1,rationale=excluded.rationale,evidence_url=excluded.evidence_url,evidence_note=excluded.evidence_note,discovery_method=excluded.discovery_method",
         ).bind(
           crypto.randomUUID(),
           relationship.targetId,
@@ -1272,6 +1281,8 @@ export async function PATCH(
           relationship.type,
           relationship.confidence,
           relationship.rationale,
+          relationship.evidenceUrl,
+          relationship.evidenceNote,
           id,
         ),
       ),

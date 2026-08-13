@@ -529,6 +529,30 @@ export function EditorialWorkspace({
     }
   }, [api, token, scope, debouncedSearch]);
 
+  async function rebuildSemanticIndex() {
+    setBusy(true);
+    let cursor = "";
+    let total = 0;
+    try {
+      for (let batch = 0; batch < 100; batch += 1) {
+        const result = (await api("/api/editorial/semantic-index", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ cursor, limit: 50 }),
+        })) as unknown as { indexed: number; nextCursor: string; done: boolean };
+        total += result.indexed;
+        cursor = result.nextCursor;
+        setMessage(`Semantic catalogue: ${total} questions indexed…`);
+        if (result.done) break;
+      }
+      setMessage(`Semantic catalogue ready: ${total} published questions indexed.`);
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "Semantic indexing failed.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
   useEffect(() => {
     if (!connected) return;
     const timer = window.setTimeout(() => {
@@ -827,14 +851,11 @@ export function EditorialWorkspace({
 
   function currentAgentBrief() {
     if (!editing) throw new Error("Open a question before exporting it.");
-    const sameCategoryQuestions = editing.candidates.filter(
-      (candidate) => candidate.categoryId === editorCategoryId,
-    );
     return buildQuestionAgentBrief({
       questionId: editing.id,
       questionTitle: editing.question_text,
       categories: editing.categories,
-      relationshipCandidates: sameCategoryQuestions,
+      relationshipCandidates: editing.candidates,
       currentSpecification: {
         contextSummary: editorContext,
         categoryId: editorCategoryId,
@@ -893,9 +914,7 @@ export function EditorialWorkspace({
         questionId: editing.id,
         categoryIds: new Set(editing.categories.map((category) => category.id)),
         relationshipTargets: new Map(
-          editing.candidates
-            .filter((candidate) => candidate.categoryId === editorCategoryId)
-            .map((candidate) => [
+          editing.candidates.map((candidate) => [
             candidate.id,
             { slug: candidate.slug, questionText: candidate.questionText },
           ]),
@@ -1343,6 +1362,9 @@ export function EditorialWorkspace({
           </button>
           <button type="button" onClick={() => void load()} disabled={busy}>
             Refresh
+          </button>
+          <button type="button" onClick={() => void rebuildSemanticIndex()} disabled={busy}>
+            Rebuild semantic catalogue
           </button>
         </nav>
       )}
@@ -2075,6 +2097,9 @@ export function EditorialWorkspace({
                             confidence: 0.7,
                             rationale:
                               "Manually connected by an editor based on the question catalogue.",
+                            evidenceUrl: "",
+                            evidenceNote:
+                              "The editor identified a substantive conceptual dependency or shared line of inquiry between these questions.",
                           };
                           setRelationshipSuggestions((current) => [
                             ...current,
@@ -2189,6 +2214,40 @@ export function EditorialWorkspace({
                                               ...item,
                                               rationale: event.target.value,
                                             }
+                                          : item,
+                                      ),
+                                    )
+                                  }
+                                />
+                              </label>
+                              <label>
+                                Relationship evidence
+                                <textarea
+                                  rows={2}
+                                  placeholder="Explain the factual or conceptual basis for this edge."
+                                  value={relationship.evidenceNote ?? ""}
+                                  onChange={(event) =>
+                                    setRelationshipSuggestions((current) =>
+                                      current.map((item) =>
+                                        item === relationship
+                                          ? { ...item, evidenceNote: event.target.value }
+                                          : item,
+                                      ),
+                                    )
+                                  }
+                                />
+                              </label>
+                              <label>
+                                Evidence URL (optional)
+                                <input
+                                  type="url"
+                                  placeholder="https://…"
+                                  value={relationship.evidenceUrl ?? ""}
+                                  onChange={(event) =>
+                                    setRelationshipSuggestions((current) =>
+                                      current.map((item) =>
+                                        item === relationship
+                                          ? { ...item, evidenceUrl: event.target.value }
                                           : item,
                                       ),
                                     )
@@ -2923,8 +2982,8 @@ export function EditorialWorkspace({
                         onClick={() => {
                           const select = document.getElementById(
                             `status-${question.id}`,
-                          ) as HTMLSelectElement;
-                          void publish(question, select.value);
+                          ) as unknown as { value: string } | null;
+                          if (select) void publish(question, select.value);
                         }}
                       >
                         Review & publish

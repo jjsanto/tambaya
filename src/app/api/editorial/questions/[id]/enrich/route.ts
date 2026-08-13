@@ -7,12 +7,14 @@ import {
   unauthorized,
 } from "@/lib/editorial-auth";
 import type { CloudflareBindings } from "@/types/cloudflare";
+import { semanticCandidates } from "@/lib/semantic-relationships";
 
 type QuestionRow = {
   question_text: string;
   context_summary: string;
   claimed_status: string;
   category_name: string;
+  category_id: string;
 };
 type ReferenceRow = {
   title: string;
@@ -166,6 +168,8 @@ const schema = {
           },
           confidence: { type: "number", minimum: 0, maximum: 1 },
           rationale: { type: "string" },
+          evidenceUrl: { type: "string" },
+          evidenceNote: { type: "string" },
         },
         required: [
           "targetId",
@@ -174,6 +178,8 @@ const schema = {
           "type",
           "confidence",
           "rationale",
+          "evidenceUrl",
+          "evidenceNote",
         ],
       },
     },
@@ -227,7 +233,7 @@ export async function POST(
   const { id } = await params;
   const [question, references, candidatesResult] = await Promise.all([
     env.DB.prepare(
-      "SELECT question_text,context_summary,claimed_status,category_name FROM questions WHERE id=?",
+      "SELECT question_text,context_summary,claimed_status,category_name,category_id FROM questions WHERE id=?",
     )
       .bind(id)
       .first<QuestionRow>(),
@@ -247,6 +253,18 @@ export async function POST(
       { error: "Question not found." },
       { status: 404, headers: editorialHeaders },
     );
+  const semantic = await semanticCandidates(env,{
+    id,
+    questionText:question.question_text,
+    contextSummary:String(body.contextSummary??question.context_summary),
+    categoryId:question.category_id,
+    category:question.category_name,
+  }).catch(()=>[]);
+  const relationshipCandidates = semantic.length ? semantic.map(candidate=>({
+    id:candidate.id,slug:candidate.slug,question_text:candidate.questionText,
+    category_name:candidate.category,context_summary:"",semanticScore:candidate.semanticScore,
+    crossCategory:candidate.crossCategory,rankingScore:candidate.rankingScore,
+  })) : (candidatesResult.results??[]);
   const workingStatus = ["OPEN", "PARTIALLY_ANSWERED", "ANSWERED"].includes(
     String(body.verifiedStatus),
   )
@@ -315,7 +333,7 @@ Existing context: ${question.context_summary}
 Existing source records: ${JSON.stringify(references.results ?? [])}
 Current unsaved working copy: ${JSON.stringify({ contextSummary: body.contextSummary, timeline: body.timeline, answerAttempts: body.answerAttempts, keyTerms: body.keyTerms, people: body.people, sections: body.sections })}
 Editorial change request: ${instruction || "Create a comprehensive general enrichment."}
-Existing question candidates: ${JSON.stringify(candidatesResult.results ?? [])}
+Cross-disciplinary relationship candidates: ${JSON.stringify(relationshipCandidates)}
 
 Write a concise 45–60 word context summary, a chronological 3–6 event timeline showing how the asking changed, and 5–6 encyclopedic Story sections about the question's origins, changing vocabulary, history of inquiry, significance, appearances across fields, methodological difficulties, and lines of further inquiry. Timeline displayDate values may be a year, period, or era; each event must identify a genuine change in framing, vocabulary, audience, or method rather than an alleged answer. Each section paragraph must contain 90–140 words. Explain the QUESTION and its history; do not state, imply, or summarize an answer. Never use phrases such as “the answer is”, “this proves”, or “therefore the answer”. The summary, timeline, lists, and callouts must also remain contextual.
 
@@ -324,7 +342,7 @@ Propose 0–8 real people whose documented work materially shaped how this exact
 
 Suggest an answer-status classification only as metadata about whether sufficiently established answers exist outside Tambaya. The rationale must describe verification scope and uncertainty without disclosing any answer. Treat statusConfidence as LOW unless the supplied source records support a stronger assessment. Source leads must be credible HTTPS references for an editor to verify; never fabricate article titles or URLs.
 
-Also propose up to 8 meaningful outbound relationships in the form “this question RELATIONSHIP_TYPE candidate question”. Use only IDs, slugs, and exact question titles from Existing question candidates. Do not force weak connections. Give each a 0–1 confidence and a concise rationale. Return an empty relationships array if none are defensible. Return only the requested JSON.`;
+Also propose up to 8 meaningful outbound relationships in the form “this question RELATIONSHIP_TYPE candidate question”. Use only IDs, slugs, and exact question titles from Cross-disciplinary relationship candidates. Prefer revealing bridges across disciplines when they are substantively defensible; do not force weak connections. Give each a 0–1 confidence, a concise rationale, an evidenceNote explaining the conceptual basis, and an evidenceUrl only when an existing credible source supports the edge (otherwise empty). Return an empty relationships array if none are defensible. Return only the requested JSON.`;
   try {
     const [storyResult, attemptResult] = await Promise.allSettled([
       env.AI.run("@cf/meta/llama-3.3-70b-instruct-fp8-fast", {
@@ -404,7 +422,7 @@ Also propose up to 8 meaningful outbound relationships in the form “this quest
       }
     }
     const candidates = new Map(
-      (candidatesResult.results ?? []).map((candidate) => [
+      relationshipCandidates.map((candidate) => [
         candidate.id,
         candidate,
       ]),

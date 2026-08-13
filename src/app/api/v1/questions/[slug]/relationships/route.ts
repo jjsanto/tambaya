@@ -23,6 +23,12 @@ export async function GET(
     data: related.map((item) => ({
       type: item.edge.type,
       direction: item.edge.sourceSlug === slug ? "OUTGOING" : "INCOMING",
+      displayLabel: item.edge.sourceSlug === slug ? item.edge.type : ({LEADS_TO:"FOLLOWS_FROM",DEPENDS_ON:"SUPPORTS",REFINES:"IS_REFINED_BY",GENERALIZES:"IS_GENERALIZED_BY",CHALLENGES:"IS_CHALLENGED_BY",PRECEDES:"FOLLOWS",RELATED_TO:"RELATED_TO"} as Record<string,string>)[item.edge.type],
+      canonicalType: item.edge.type === "GENERALIZES" ? "REFINES" : item.edge.type,
+      confidence: item.edge.confidence ?? null,
+      verification: item.edge.verified ? "VERIFIED" : "UNVERIFIED",
+      rationale: item.edge.rationale || null,
+      evidence: item.edge.evidenceNote ? { note:item.edge.evidenceNote, url:item.edge.evidenceUrl || null } : null,
       sourceSlug: item.edge.sourceSlug,
       targetSlug: item.edge.targetSlug,
       question: {

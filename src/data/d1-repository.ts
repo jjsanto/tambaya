@@ -488,7 +488,7 @@ export class D1QuestionRepository implements QuestionRepository {
       (
         await this.db
           .prepare(
-            "SELECT source_slug AS sourceSlug,target_slug AS targetSlug,relationship_type AS type FROM question_relationships WHERE verified=1 AND (source_question_id=? OR target_question_id=?) ORDER BY confidence DESC,created_at DESC",
+            "SELECT source_slug AS sourceSlug,target_slug AS targetSlug,relationship_type AS type,confidence,verified,COALESCE(rationale,'') rationale,COALESCE(evidence_url,'') evidenceUrl,COALESCE(evidence_note,'') evidenceNote FROM question_relationships WHERE verified=1 AND (source_question_id=? OR target_question_id=?) ORDER BY confidence DESC,created_at DESC",
           )
           .bind(source.id, source.id)
           .all<{

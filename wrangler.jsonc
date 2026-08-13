@@ -7,6 +7,9 @@
   "secrets": { "required": ["EDITORIAL_TOKEN"] },
   "assets": { "directory": ".open-next/assets", "binding": "ASSETS" },
   "ai": { "binding": "AI" },
+  "vectorize": [
+    { "binding": "QUESTION_VECTORS", "index_name": "tambaya-questions" }
+  ],
   "observability": { "enabled": true },
   "d1_databases": [
     { "binding": "DB", "database_name": "tambaya", "database_id": "cea1a4e2-74c2-4b35-b3a9-3e33f97e8626", "migrations_dir": "migrations" }

@@ -152,6 +152,11 @@ export type QuestionRelationship = {
   sourceSlug: string;
   targetSlug: string;
   type: RelationshipType;
+  confidence?: number;
+  verified?: boolean;
+  rationale?: string;
+  evidenceUrl?: string;
+  evidenceNote?: string;
 };
 
 export function isAnswerStatus(value: unknown): value is AnswerStatus {
