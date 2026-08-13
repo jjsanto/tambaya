@@ -408,6 +408,13 @@ export function EditorialWorkspace({
   const [queueStatus, setQueueStatus] = useState("");
   const [queueBatch, setQueueBatch] = useState("");
   const [queueReadiness, setQueueReadiness] = useState("");
+  const [queueSearch, setQueueSearch] = useState("");
+  const [debouncedSearch, setDebouncedSearch] = useState("");
+
+  useEffect(() => {
+    const timer = window.setTimeout(() => setDebouncedSearch(queueSearch.trim()), 300);
+    return () => window.clearTimeout(timer);
+  }, [queueSearch]);
 
   const filteredQuestions = useMemo(() => questions.filter((question) => {
     const checks = qualityChecks(question);
@@ -494,7 +501,9 @@ export function EditorialWorkspace({
     setBusy(true);
     try {
       sessionStorage.setItem("tambaya-editorial-token", token.trim());
-      const result = await api(`/api/editorial/questions?scope=${scope}`);
+      const params = new URLSearchParams({ scope });
+      if (debouncedSearch) params.set("q", debouncedSearch);
+      const result = await api(`/api/editorial/questions?${params}`);
       setQuestions(result.questions ?? []);
       setReviewCount(result.reviewCount ?? 0);
       setMessage(
@@ -511,7 +520,7 @@ export function EditorialWorkspace({
     } finally {
       setBusy(false);
     }
-  }, [api, token, scope]);
+  }, [api, token, scope, debouncedSearch]);
 
   useEffect(() => {
     if (!connected) return;
@@ -1375,6 +1384,10 @@ export function EditorialWorkspace({
                   : "Question archive"}
               </h2>
               <div className="discovery-controls editorial-queue-filters">
+                <label className="editorial-question-search">
+                  Search questions
+                  <input type="search" value={queueSearch} onChange={(event) => setQueueSearch(event.target.value)} placeholder="Title, summary, category, or slug…" autoComplete="off" />
+                </label>
                 <label>
                   Batch
                   <select value={queueBatch} onChange={(event) => setQueueBatch(event.target.value)}>
@@ -1406,7 +1419,7 @@ export function EditorialWorkspace({
                     <option value="needs-work">Needs work</option>
                   </select>
                 </label>
-                <span>{filteredQuestions.length} of {questions.length} shown</span>
+                <span>{queueSearch.trim() ? `${filteredQuestions.length} matching result${filteredQuestions.length === 1 ? "" : "s"}` : `${filteredQuestions.length} of ${questions.length} shown`}</span>
               </div>
               {editing && (
                 <form className="story-editor" onSubmit={saveStory}>
@@ -2908,6 +2921,12 @@ export function EditorialWorkspace({
                   )}
                 </article>
               ))}
+              {!editing && filteredQuestions.length === 0 && (
+                <div className="empty compact-empty">
+                  <strong>No editorial questions match.</strong>
+                  <p>Try fewer words, remove a filter, or search by category or slug.</p>
+                </div>
+              )}
             </section>
           </div>
         </>

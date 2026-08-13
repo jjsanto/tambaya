@@ -41,6 +41,7 @@ async function context() {
 export async function GET(request: Request) {
   const { env } = await context();
   if (!(await hasEditorialAccess(request, env))) return unauthorized();
+  const search = new URL(request.url).searchParams.get("q")?.trim().slice(0, 120) ?? "";
   const scope =
     new URL(request.url).searchParams.get("scope") === "archive"
       ? "archive"
@@ -49,16 +50,21 @@ export async function GET(request: Request) {
     scope === "review"
       ? "q.submission_state='SUBMITTED' AND q.editorial_outcome IS NULL"
       : "q.publication_state='PUBLISHED' OR q.submission_state IS NULL";
+  const searchWhere = search
+    ? " AND (q.question_text LIKE ? ESCAPE '\\' COLLATE NOCASE OR q.context_summary LIKE ? ESCAPE '\\' COLLATE NOCASE OR COALESCE(c.name,q.category_name,'') LIKE ? ESCAPE '\\' COLLATE NOCASE OR q.slug LIKE ? ESCAPE '\\' COLLATE NOCASE)"
+    : "";
+  const searchPattern = `%${search.replace(/[\\%_]/g, value => `\\${value}`)}%`;
+  const listStatement = env.DB.prepare(
+    `SELECT q.id,q.slug,q.question_text,q.publication_state,q.claimed_status,q.verified_status,q.verification_state,COALESCE(c.name,q.category_name,'Uncategorised') category_name,q.context_summary,q.updated_at,
+    (SELECT COUNT(*) FROM question_story_sections s WHERE s.question_id=q.id) section_count,
+    (SELECT COUNT(*) FROM timeline_events t WHERE t.question_id=q.id) timeline_count,
+    (SELECT COUNT(*) FROM question_key_terms k WHERE k.question_id=q.id) term_count,
+    ((SELECT COUNT(*) FROM question_references r WHERE r.question_id=q.id) + (SELECT COUNT(*) FROM question_answer_attempts a WHERE a.question_id=q.id AND a.verified=1)) source_count,
+    (SELECT COUNT(*) FROM question_relationships rel WHERE (rel.source_question_id=q.id OR rel.target_question_id=q.id) AND rel.verified=1) relationship_count,
+    q.submission_state,q.review_notes FROM questions q LEFT JOIN categories c ON c.id=q.category_id WHERE (${where})${searchWhere} ORDER BY q.updated_at DESC`,
+  );
   const [result, reviewCount] = await Promise.all([
-    env.DB.prepare(
-      `SELECT q.id,q.slug,q.question_text,q.publication_state,q.claimed_status,q.verified_status,q.verification_state,COALESCE(c.name,q.category_name,'Uncategorised') category_name,q.context_summary,q.updated_at,
-      (SELECT COUNT(*) FROM question_story_sections s WHERE s.question_id=q.id) section_count,
-      (SELECT COUNT(*) FROM timeline_events t WHERE t.question_id=q.id) timeline_count,
-      (SELECT COUNT(*) FROM question_key_terms k WHERE k.question_id=q.id) term_count,
-      ((SELECT COUNT(*) FROM question_references r WHERE r.question_id=q.id) + (SELECT COUNT(*) FROM question_answer_attempts a WHERE a.question_id=q.id AND a.verified=1)) source_count,
-      (SELECT COUNT(*) FROM question_relationships rel WHERE (rel.source_question_id=q.id OR rel.target_question_id=q.id) AND rel.verified=1) relationship_count,
-      q.submission_state,q.review_notes FROM questions q LEFT JOIN categories c ON c.id=q.category_id WHERE ${where} ORDER BY q.updated_at DESC`,
-    ).all<EditorialRow>(),
+    (search ? listStatement.bind(searchPattern,searchPattern,searchPattern,searchPattern) : listStatement).all<EditorialRow>(),
     env.DB.prepare(
       "SELECT COUNT(*) count FROM questions WHERE submission_state='SUBMITTED' AND editorial_outcome IS NULL",
     ).first<{ count: number }>(),
@@ -68,6 +74,7 @@ export async function GET(request: Request) {
       questions: result.results ?? [],
       scope,
       reviewCount: reviewCount?.count ?? 0,
+      search,
     },
     { headers: editorialHeaders },
   );
