@@ -36,6 +36,7 @@ type ReferenceRow = {
   purpose: QuestionReference["purpose"];
 };
 type AnswerAttemptRow = {
+  id: string;
   title: string;
   author: string;
   publisher: string;
@@ -71,7 +72,7 @@ type BranchRow = { question_text: string; relationship_type: RelationshipType };
 type SummaryRow = { question_id: string; body: string };
 type QuestionTagRow = { question_id: string; name: string };
 type CategoryRow = { name: string; slug: string; is_primary: number };
-type StatusEventRow = { occurred_at:string; from_status:AnswerStatus|null; to_status:AnswerStatus; evidence_url:string|null; verifier_type:"MIGRATION"|"EDITORIAL"|"INSTITUTION"|"SYSTEM"; verifier_name:string|null; note:string|null };
+type StatusEventRow = { id:string; occurred_at:string; from_status:AnswerStatus|null; to_status:AnswerStatus; evidence_url:string|null; verifier_type:"MIGRATION"|"EDITORIAL"|"INSTITUTION"|"SYSTEM"; verifier_name:string|null; note:string|null };
 
 export class D1QuestionRepository implements QuestionRepository {
   constructor(private readonly db: D1DatabaseLike) {}
@@ -238,14 +239,14 @@ export class D1QuestionRepository implements QuestionRepository {
         .all<BranchRow>(),
       this.db
         .prepare(
-          "SELECT title,author,publisher,source_url,publication_date,approach,scope,significance,unresolved,outcome_type,outcome_note FROM question_answer_attempts WHERE question_id=? AND verified=1 ORDER BY position",
+          "SELECT id,title,author,publisher,source_url,publication_date,approach,scope,significance,unresolved,outcome_type,outcome_note FROM question_answer_attempts WHERE question_id=? AND verified=1 ORDER BY position",
         )
         .bind(row.id)
         .all<AnswerAttemptRow>(),
       this.db.prepare("SELECT c.name,c.slug,qc.is_primary FROM question_categories qc JOIN categories c ON c.id=qc.category_id WHERE qc.question_id=? ORDER BY qc.is_primary DESC,qc.position,c.name").bind(row.id).all<CategoryRow>(),
-      this.db.prepare("SELECT occurred_at,from_status,to_status,evidence_url,verifier_type,verifier_name,note FROM question_status_events WHERE question_id=? ORDER BY occurred_at DESC,created_at DESC").bind(row.id).all<StatusEventRow>(),
+      this.db.prepare("SELECT id,occurred_at,from_status,to_status,evidence_url,verifier_type,verifier_name,note FROM question_status_events WHERE question_id=? ORDER BY occurred_at DESC,created_at DESC").bind(row.id).all<StatusEventRow>(),
       this.db.prepare("SELECT text,period,language,source_url,source_title,note FROM question_phrasings WHERE question_id=? AND verified=1 ORDER BY position,period").bind(row.id).all<PhrasingRow>(),
-      this.db.prepare("SELECT sc.target_type targetType,sc.target_id targetId,s.slug sourceSlug,s.title,s.publisher,s.canonical_url url,sc.note FROM source_citations sc JOIN sources s ON s.id=sc.source_id WHERE sc.question_id=? AND sc.verified=1 AND sc.target_type IN ('STORY_SECTION','TIMELINE_EVENT') ORDER BY sc.position").bind(row.id).all<{targetType:"STORY_SECTION"|"TIMELINE_EVENT";targetId:string;sourceSlug:string;title:string;publisher:string;url:string;note:string}>(),
+      this.db.prepare("SELECT sc.target_type targetType,sc.target_id targetId,s.slug sourceSlug,s.title,s.publisher,s.canonical_url url,sc.note FROM source_citations sc JOIN sources s ON s.id=sc.source_id WHERE sc.question_id=? AND sc.verified=1 AND sc.target_type<>'QUESTION' ORDER BY sc.position").bind(row.id).all<import("@/domain/question").QuestionCitation>(),
     ]);
     const sections = new Map(
       (sectionsResult.results ?? []).map((section) => [
@@ -281,7 +282,7 @@ export class D1QuestionRepository implements QuestionRepository {
       claimedStatus: row.claimed_status,
       verifiedStatus: row.verified_status,
       verificationState: row.verification_state,
-      statusHistory: (statusEventsResult.results ?? []).map(item=>({occurredAt:item.occurred_at,fromStatus:item.from_status,toStatus:item.to_status,evidenceUrl:item.evidence_url,verifierType:item.verifier_type,verifierName:item.verifier_name,note:item.note})),
+      statusHistory: (statusEventsResult.results ?? []).map(item=>({id:item.id,occurredAt:item.occurred_at,fromStatus:item.from_status,toStatus:item.to_status,evidenceUrl:item.evidence_url,verifierType:item.verifier_type,verifierName:item.verifier_name,note:item.note})),
       phrasings:(phrasingsResult.results??[]).map(item=>({text:item.text,period:item.period,language:item.language,sourceUrl:item.source_url,sourceTitle:item.source_title,note:item.note})),
       featured: Boolean(row.featured),
       contextSummary: body("SUMMARY"),
@@ -304,6 +305,7 @@ export class D1QuestionRepository implements QuestionRepository {
       })),
       citations: citationsResult.results ?? [],
       answerAttempts: (answerAttemptsResult.results ?? []).map((attempt) => ({
+        id: attempt.id,
         title: attempt.title,
         author: attempt.author,
         publisher: attempt.publisher,

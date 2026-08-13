@@ -468,6 +468,7 @@ export function EditorialWorkspace({
     editorVerifiedStatus,
     relationshipSuggestions,
   ]);
+  const citationCoverage=useMemo(()=>{if(!editing)return null;const targets=editorSections.length+editorTimeline.length+editorAnswerAttempts.filter(item=>item.approved).length+relationshipSuggestions.filter(item=>approvedRelationships.has(`${item.targetId}:${item.type}`)).length;const covered=editorCitations.length+editorAnswerAttempts.filter(item=>item.approved&&/^https:\/\//i.test(item.url)).length+relationshipSuggestions.filter(item=>approvedRelationships.has(`${item.targetId}:${item.type}`)&&(/^https:\/\//i.test(item.evidenceUrl??"")||(item.evidenceNote??"").trim().length>=20)).length;return {targets,covered,percent:targets?Math.round(covered/targets*100):100};},[approvedRelationships,editing,editorAnswerAttempts,editorCitations,editorSections.length,editorTimeline.length,relationshipSuggestions]);
 
   useEffect(() => {
     const timer = window.setTimeout(
@@ -1623,6 +1624,7 @@ export function EditorialWorkspace({
                           ))}
                         </ul>
                       )}
+                      {citationCoverage&&<p className="citation-coverage"><strong>Citation coverage: {citationCoverage.percent}%</strong> · {citationCoverage.covered} of {citationCoverage.targets} publishable fields have source or evidence support.</p>}
                     </aside>
                   )}
                   <section className="enrichment-panel">

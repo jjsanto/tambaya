@@ -42,7 +42,7 @@ export type QuestionReference = {
     | "TIMELINE"
     | "BACKGROUND";
 };
-export type QuestionCitation = { targetType:"STORY_SECTION"|"TIMELINE_EVENT"; targetId:string; sourceSlug:string; title:string; publisher:string; url:string; note:string };
+export type QuestionCitation = { targetType:"STORY_SECTION"|"TIMELINE_EVENT"|"ANSWER_ATTEMPT"|"STATUS_EVENT"|"RELATIONSHIP"; targetId:string; sourceSlug:string; title:string; publisher:string; url:string; note:string };
 export type EditorialReview = {
   provenance: "EDITORIAL" | "PUBLISHER" | "AI_ASSISTED";
   reviewedAt: string;
@@ -88,6 +88,7 @@ export type QuestionBranch = {
   relationship: RelationshipType;
 };
 export type AnswerAttempt = {
+  id?: string;
   title: string;
   author: string;
   publisher: string;
@@ -103,6 +104,7 @@ export type AnswerAttempt = {
 export type QuestionPhrasing = { text:string; period:string; language:string; sourceUrl:string|null; sourceTitle:string|null; note:string|null };
 export type QuestionCategory = { name: string; slug: string; primary: boolean };
 export type QuestionStatusEvent = {
+  id?: string;
   occurredAt: string;
   fromStatus: AnswerStatus | null;
   toStatus: AnswerStatus;

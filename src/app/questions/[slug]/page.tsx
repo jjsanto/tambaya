@@ -408,6 +408,7 @@ export default async function QuestionPage({
                   <a href={attempt.url} target="_blank" rel="noreferrer">
                     Examine the source ↗
                   </a>
+                  {(question.citations??[]).filter(citation=>citation.targetType==="ANSWER_ATTEMPT"&&citation.targetId===attempt.id).map(citation=><Link className="timeline-citation" key={citation.sourceSlug} href={`/sources/${citation.sourceSlug}`}>Tambaya source record →</Link>)}
                 </article>
               ))}
             </div>
@@ -430,6 +431,7 @@ export default async function QuestionPage({
                     {edge.type.replaceAll("_", " ")}
                   </span>
                   <QuestionCard question={q} />
+                  {edge.evidenceUrl&&<a className="timeline-citation" href={edge.evidenceUrl} target="_blank" rel="noreferrer">Relationship evidence ↗</a>}
                 </div>
               ))}
             </div>
