@@ -575,6 +575,14 @@ export async function PATCH(
     }
     return Response.json({ id, revisionState: "DRAFT" });
   }
+  if(body.action==="reopen_for_review"){
+    if(draft.publication_state!=="ARCHIVED"||draft.editorial_outcome)return Response.json({error:"Only non-rejected archived catalogue questions can be reopened."},{status:409});
+    await env.DB.batch([
+      env.DB.prepare("UPDATE questions SET publication_state='DRAFT',visibility='PRIVATE',verification_state='PENDING',updated_at=CURRENT_TIMESTAMP WHERE id=?").bind(id),
+      env.DB.prepare("INSERT INTO editorial_revisions(id,question_id,action,snapshot_json) VALUES (?,?,'REOPENED_FOR_REVIEW',?)").bind(crypto.randomUUID(),id,JSON.stringify({previousState:"ARCHIVED"})),
+    ]);
+    return Response.json({id,publicationState:"DRAFT"});
+  }
   if (body.action === "discard_revision") {
     await env.DB.prepare(
       "DELETE FROM question_revision_drafts WHERE question_id=?",

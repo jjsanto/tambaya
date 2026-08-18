@@ -51,7 +51,7 @@ export async function GET(request: Request) {
       : "review";
   const where =
     scope === "review"
-      ? "q.submission_state='SUBMITTED' AND q.editorial_outcome IS NULL"
+      ? "q.editorial_outcome IS NULL AND (q.submission_state='SUBMITTED' OR q.publication_state='DRAFT' OR q.publication_state='ARCHIVED')"
       : "q.publication_state='PUBLISHED' OR q.submission_state IS NULL";
   const searchWhere = search
     ? " AND (q.question_text LIKE ? ESCAPE '\\' COLLATE NOCASE OR q.context_summary LIKE ? ESCAPE '\\' COLLATE NOCASE OR COALESCE(c.name,q.category_name,'') LIKE ? ESCAPE '\\' COLLATE NOCASE OR q.slug LIKE ? ESCAPE '\\' COLLATE NOCASE)"
@@ -71,7 +71,7 @@ export async function GET(request: Request) {
   const [result, reviewCount] = await Promise.all([
     (search ? listStatement.bind(searchPattern,searchPattern,searchPattern,searchPattern) : listStatement).all<EditorialRow>(),
     env.DB.prepare(
-      "SELECT COUNT(*) count FROM questions WHERE submission_state='SUBMITTED' AND editorial_outcome IS NULL",
+      "SELECT COUNT(*) count FROM questions WHERE editorial_outcome IS NULL AND (submission_state='SUBMITTED' OR publication_state='DRAFT' OR publication_state='ARCHIVED')",
     ).first<{ count: number }>(),
   ]);
   return Response.json(

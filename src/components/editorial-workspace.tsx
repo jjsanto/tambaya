@@ -528,7 +528,7 @@ export function EditorialWorkspace({
       setReviewCount(result.reviewCount ?? 0);
       setMessage(
         scope === "review"
-          ? `${result.reviewCount ?? 0} publisher submission${result.reviewCount === 1 ? "" : "s"} awaiting review.`
+          ? `${result.reviewCount ?? 0} question${result.reviewCount === 1 ? "" : "s"} in the quality review backlog.`
           : "Question archive loaded.",
       );
     } catch (error) {
@@ -691,6 +691,7 @@ export function EditorialWorkspace({
   async function openEditor(question: EditorialQuestion) {
     setBusy(true);
     try {
+      if(question.publication_state==="ARCHIVED")await api(`/api/editorial/questions/${question.id}`,{method:"PATCH",headers:{"Content-Type":"application/json"},body:JSON.stringify({action:"reopen_for_review"})});
       if (question.publication_state === "PUBLISHED")
         await api(`/api/editorial/questions/${question.id}`, {
           method: "PATCH",
@@ -1361,7 +1362,7 @@ export function EditorialWorkspace({
               setScope("review");
             }}
           >
-            Review queue <span>{reviewCount}</span>
+            Quality review <span>{reviewCount}</span>
           </button>
           <button
             type="button"
@@ -1435,12 +1436,12 @@ export function EditorialWorkspace({
             <section className="editorial-queue">
               <span className="eyebrow">
                 {scope === "review"
-                  ? "Publisher submissions"
+                  ? "Quality review backlog"
                   : "Published records"}
               </span>
               <h2>
                 {scope === "review"
-                  ? "Awaiting editorial review"
+                  ? "Questions requiring editorial attention"
                   : "Question archive"}
               </h2>
               <section className="quality-console-summary" aria-label="Editorial quality overview">
@@ -3046,12 +3047,7 @@ export function EditorialWorkspace({
                       >
                         Review Story
                       </button>
-                      <a
-                        className="button small"
-                        href={`/questions/${question.slug}`}
-                      >
-                        View live
-                      </a>
+                      {question.publication_state==="PUBLISHED"&&<a className="button small" href={`/questions/${question.slug}`}>View live</a>}
                     </div>
                   )}
                 </article>
@@ -3070,12 +3066,12 @@ export function EditorialWorkspace({
         <div className="empty">
           <h2>
             {scope === "review"
-              ? "No publisher submissions are awaiting review."
+              ? "No questions require editorial review."
               : "The archive is empty."}
           </h2>
           <p>
             {scope === "review"
-              ? "Saved drafts remain private until the publisher selects Submit for review. Use Refresh after they submit."
+              ? "Submitted, private-draft, and recoverable archived questions appear here when they need attention."
               : "Published and legacy editorial questions appear here."}
           </p>
         </div>
