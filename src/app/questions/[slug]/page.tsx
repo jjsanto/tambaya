@@ -138,6 +138,9 @@ export default async function QuestionPage({
       {(question.phrasings?.length??0)>0&&<section className="phrasing-history shell"><span className="eyebrow">Language through time</span><h2>How the question was phrased</h2><div>{question.phrasings!.map((phrasing,index)=><article key={`${phrasing.period}-${index}`}><small>{phrasing.period} · {phrasing.language}</small><blockquote>{phrasing.text}</blockquote>{phrasing.note&&<p>{phrasing.note}</p>}{phrasing.sourceUrl&&<a className="text-link" href={phrasing.sourceUrl}>Source →</a>}</article>)}</div></section>}
       <nav className="story-nav">
         <div className="shell">
+          <strong className="sticky-question-title" title={question.questionText}>
+            {question.questionText}
+          </strong>
           <a href="#story">Story</a>
           <a href="#timeline">Timeline</a>
           {(question.answerAttempts?.length ?? 0) > 0 &&
