@@ -284,18 +284,6 @@ export default async function QuestionPage({
             </section>
           ))}
         </main>
-        <aside className="story-aside">
-          <strong>A note on context</strong>
-          <p>
-            Tambaya explains how this question arose and why it matters. It
-            deliberately does not resolve it.
-          </p>
-          <p>
-            {question.storySections.length} reviewed sections ·{" "}
-            {question.references.length} references
-          </p>
-          <Link href="/explore">Keep exploring →</Link>
-        </aside>
       </div>
       {(usefulKeyTerms.length > 0 || question.people.length > 0) && (
         <section className="encyclopedic-section">
