@@ -374,6 +374,7 @@ export async function GET(
         ...question,
         context_summary:
           workingCopy?.contextSummary ?? question.context_summary,
+        liveContextSummary: question.context_summary,
         category_id: workingCopy?.categoryId ?? question.category_id,
         category_ids: workingCopy?.categoryIds ?? (assignedCategoriesResult.results??[]).map(item=>item.id),
         categories: categoriesResult.results ?? [],

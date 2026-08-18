@@ -11,6 +11,7 @@ import {
   unauthorized,
 } from "@/lib/editorial-auth";
 import type { CloudflareBindings } from "@/types/cloudflare";
+import {evaluateQualityConsole} from "@/domain/quality-console";
 
 type EditorialRow = {
   id: string;
@@ -30,6 +31,8 @@ type EditorialRow = {
   relationship_count: number;
   submission_state: string | null;
   review_notes: string | null;
+  citation_count:number;
+  has_pending_revision:number;
 };
 
 async function context() {
@@ -61,6 +64,8 @@ export async function GET(request: Request) {
     (SELECT COUNT(*) FROM question_key_terms k WHERE k.question_id=q.id) term_count,
     ((SELECT COUNT(*) FROM question_references r WHERE r.question_id=q.id) + (SELECT COUNT(*) FROM question_answer_attempts a WHERE a.question_id=q.id AND a.verified=1)) source_count,
     (SELECT COUNT(*) FROM question_relationships rel WHERE (rel.source_question_id=q.id OR rel.target_question_id=q.id) AND rel.verified=1) relationship_count,
+    (SELECT COUNT(*) FROM source_citations sc WHERE sc.question_id=q.id AND sc.verified=1 AND sc.target_type<>'QUESTION') citation_count,
+    EXISTS(SELECT 1 FROM question_revision_drafts rd WHERE rd.question_id=q.id) has_pending_revision,
     q.submission_state,q.review_notes FROM questions q LEFT JOIN categories c ON c.id=q.category_id WHERE (${where})${searchWhere} ORDER BY q.updated_at DESC`,
   );
   const [result, reviewCount] = await Promise.all([
@@ -71,7 +76,7 @@ export async function GET(request: Request) {
   ]);
   return Response.json(
     {
-      questions: result.results ?? [],
+      questions: (result.results ?? []).map(question=>({...question,quality:evaluateQualityConsole({contextSummary:question.context_summary,sectionCount:question.section_count,timelineCount:question.timeline_count,termCount:question.term_count,sourceCount:question.source_count,citationCount:question.citation_count,relationshipCount:question.relationship_count,verifiedStatus:question.verified_status,verificationState:question.verification_state,publicationState:question.publication_state,hasPendingRevision:Boolean(question.has_pending_revision)})})),
       scope,
       reviewCount: reviewCount?.count ?? 0,
       search,

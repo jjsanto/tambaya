@@ -8,6 +8,7 @@ import {
 } from "@/domain/question";
 import type { EnrichmentProposal } from "@/domain/enrichment";
 import { evaluateEditorialQuality } from "@/domain/editorial-quality";
+import type {QualityDimension,QualityFinding,QualityTier} from "@/domain/quality-console";
 import {
   buildQuestionAgentBrief,
   type ImportableQuestionSpecification,
@@ -35,6 +36,9 @@ type EditorialQuestion = {
   relationship_count: number;
   submission_state: string | null;
   review_notes: string | null;
+  citation_count:number;
+  has_pending_revision:number;
+  quality:{score:number;tier:QualityTier;dimensions:Record<QualityDimension,number>;findings:QualityFinding[];riskScore:number};
 };
 type StoryEditorSection = {
   key: string;
@@ -58,6 +62,7 @@ type AnswerAttemptEditorItem = EnrichmentProposal["answerAttempts"][number] & {
 type PhrasingEditorItem={text:string;period:string;language:string;sourceUrl:string;sourceTitle:string;note:string};
 type CitationEditorItem={targetType:"STORY_SECTION"|"TIMELINE_EVENT";targetId:string;sourceUrl:string;note:string};
 type EditorialDetail = EditorialQuestion & {
+  liveContextSummary?: string;
   category_id: string;
   category_ids?:string[];
   categories: { id: string; name: string }[];
@@ -437,7 +442,8 @@ export function EditorialWorkspace({
       (!queueStatus || (question.verified_status ?? question.claimed_status) === queueStatus) &&
       (!queueBatch || batchLabel(question) === queueBatch) &&
       (!queueReadiness || (queueReadiness === "ready" ? editoriallyReady : !editoriallyReady));
-  }), [questions, queueBatch, queueCategory, queueReadiness, queueStatus]);
+  }).sort((a,b)=>b.quality.riskScore-a.quality.riskScore||a.quality.score-b.quality.score), [questions, queueBatch, queueCategory, queueReadiness, queueStatus]);
+  const qualitySummary=useMemo(()=>({average:questions.length?Math.round(questions.reduce((sum,item)=>sum+item.quality.score,0)/questions.length):0,highRisk:questions.filter(item=>item.quality.findings.some(finding=>finding.severity==="HIGH")).length,pendingChanges:questions.filter(item=>item.has_pending_revision).length,grounded:questions.filter(item=>["SOURCE_GROUNDED","EDITORIALLY_REVIEWED","EXPERT_VERIFIED"].includes(item.quality.tier)).length}),[questions]);
 
   const workingQuality = useMemo(() => {
     if (!editing) return null;
@@ -470,6 +476,7 @@ export function EditorialWorkspace({
     relationshipSuggestions,
   ]);
   const citationCoverage=useMemo(()=>{if(!editing)return null;const targets=editorSections.length+editorTimeline.length+editorAnswerAttempts.filter(item=>item.approved).length+relationshipSuggestions.filter(item=>approvedRelationships.has(`${item.targetId}:${item.type}`)).length;const covered=editorCitations.length+editorAnswerAttempts.filter(item=>item.approved&&/^https:\/\//i.test(item.url)).length+relationshipSuggestions.filter(item=>approvedRelationships.has(`${item.targetId}:${item.type}`)&&(/^https:\/\//i.test(item.evidenceUrl??"")||(item.evidenceNote??"").trim().length>=20)).length;return {targets,covered,percent:targets?Math.round(covered/targets*100):100};},[approvedRelationships,editing,editorAnswerAttempts,editorCitations,editorSections.length,editorTimeline.length,relationshipSuggestions]);
+  const changedFields=useMemo(()=>{if(!editing?.hasPendingRevision)return [];const changed:string[]=[];if(editorContext.trim()!==(editing.liveContextSummary??"").trim())changed.push("Context summary");const live=new Map(editing.liveSections.map(section=>[section.key,JSON.stringify(section)]));for(const section of editorSections)if(live.get(section.key)!==JSON.stringify(section))changed.push(`Story: ${section.title||section.key}`);for(const section of editing.liveSections)if(!editorSections.some(item=>item.key===section.key))changed.push(`Removed Story: ${section.title}`);return changed;},[editing,editorContext,editorSections]);
 
   useEffect(() => {
     const timer = window.setTimeout(
@@ -1436,6 +1443,12 @@ export function EditorialWorkspace({
                   ? "Awaiting editorial review"
                   : "Question archive"}
               </h2>
+              <section className="quality-console-summary" aria-label="Editorial quality overview">
+                <div><strong>{qualitySummary.average}</strong><span>Average quality</span></div>
+                <div><strong>{qualitySummary.highRisk}</strong><span>High-risk records</span></div>
+                <div><strong>{qualitySummary.grounded}</strong><span>Source-grounded</span></div>
+                <div><strong>{qualitySummary.pendingChanges}</strong><span>Changed records</span></div>
+              </section>
               <div className="discovery-controls editorial-queue-filters">
                 <label className="editorial-question-search">
                   Search questions
@@ -1593,6 +1606,7 @@ export function EditorialWorkspace({
                       )}
                     </section>
                   )}
+                  {changedFields.length>0&&<aside className="changed-field-review"><span className="eyebrow">Review only what changed</span><strong>{changedFields.length} changed field{changedFields.length===1?"":"s"}</strong><ul>{changedFields.map(field=><li key={field}>{field}</li>)}</ul></aside>}
                   {workingQuality && (
                     <aside
                       className={`publication-checklist ${workingQuality.ready ? "quality-pass" : "quality-missing"}`}
@@ -2948,6 +2962,7 @@ export function EditorialWorkspace({
                       section{question.section_count === 1 ? "" : "s"}
                     </small>
                   </div>
+                  <div className="record-quality-heading"><span className={`quality-tier tier-${question.quality.tier.toLowerCase()}`}>{question.quality.tier.replaceAll("_"," ")}</span><strong>{question.quality.score}/100</strong><small>Risk {question.quality.riskScore}</small></div>
                   <h3>{question.question_text}</h3>
                   <p>{question.context_summary}</p>
                   <div className="quality-indicators" aria-label="Editorial completeness">
@@ -2957,6 +2972,7 @@ export function EditorialWorkspace({
                       </span>
                     ))}
                   </div>
+                  <details className="quality-findings"><summary>{question.quality.findings.length} automated finding{question.quality.findings.length===1?"":"s"}</summary><div className="quality-dimensions">{Object.entries(question.quality.dimensions).map(([dimension,score])=><span key={dimension}>{dimension.replace(/([A-Z])/g," $1")}: <strong>{score}</strong></span>)}</div>{question.quality.findings.length?<ul>{question.quality.findings.map(finding=><li key={finding.code} className={`severity-${finding.severity.toLowerCase()}`}><strong>{finding.severity}</strong> {finding.message}</li>)}</ul>:<p>No automated risks detected.</p>}</details>
                   {question.publication_state === "DRAFT" ? (
                     <div className="editorial-actions">
                       {question.submission_state && (
